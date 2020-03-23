@@ -39,6 +39,33 @@ pub struct Task {
     pub compression: Option<Compression>,
 }
 
+#[derive(Uclicious, Clone, Debug)]
+#[ucl(skip_builder)]
+pub struct Log {
+    #[ucl(default)]
+    pub syslog: Option<LogSysLog>,
+    #[ucl(default)]
+    pub terminal: Option<LogTerminal>,
+}
+
+#[derive(Uclicious, Clone, Debug)]
+#[ucl(skip_builder)]
+pub struct LogTerminal {
+    #[ucl(default = "true")]
+    enabled: bool,
+    #[ucl(default = "INFO")]
+    level: String,
+}
+
+#[derive(Uclicious, Clone, Debug)]
+#[ucl(skip_builder)]
+pub struct LogSysLog {
+    #[ucl(default = "false")]
+    enabled: bool,
+    #[ucl(default = "INFO")]
+    level: String,
+}
+
 #[derive(Uclicious)]
 pub struct Configuration {
     #[ucl(path = "destination")]
