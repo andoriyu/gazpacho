@@ -78,10 +78,7 @@ impl ExecutionContext {
                 &self.task.compression,
             );
             if let Some(ref compression) = self.task.compression {
-                let sess = self.destination.get_ssh_session().unwrap();
-                let sftp = sess.sftp().unwrap();
-                let file = sftp.create(&ensured_dst.0).unwrap();
-                let mut encoder = Encoder::new(file, compression.zstd.level).unwrap();
+                let mut encoder = Encoder::new(ensured_dst, compression.zstd.level).unwrap();
 
                 encoder.multithread(compression.zstd.workers);
                 let mut encoder = encoder.auto_finish();
@@ -105,8 +102,6 @@ fn save_snapshot_to_writer<W: Write>(writer: &mut W, snapshot: PathBuf) {
         let flags = SendFlags::default();
         z.send_full(snapshot, pipe.write, flags);
     });
-    let mut r = BufReader::with_capacity(67108864, rx);
-    let mut w = BufWriter::with_capacity(67108864, writer);
-    std::io::copy(&mut r, &mut w).unwrap();
+    std::io::copy(&mut rx, writer).unwrap();
     handle_zfs.join().unwrap();
 }

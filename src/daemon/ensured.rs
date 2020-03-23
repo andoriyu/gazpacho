@@ -2,13 +2,16 @@ use crate::daemon::config::Compression;
 use crate::daemon::destination::{Destination, DestinationSsh};
 use chrono::Utc;
 use libzetta::zfs::PathExt;
-use ssh2::{File as SftpFile, Session};
+use ssh2::{File as SftpFile, Session, Sftp};
 use std::fs::File as LocalFile;
 use std::io::{Error, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 
-pub struct EnsuredDestination(pub PathBuf);
+pub enum EnsuredDestination {
+    SftpFile(SftpFile, Session, Sftp),
+    LocalFile(LocalFile),
+}
 
 impl EnsuredDestination {
     pub fn ensure(
@@ -49,12 +52,39 @@ impl EnsuredDestination {
             path
         };
 
-        let mut sess = dst.get_ssh_session();
+        let mut sess = Session::new().unwrap();
+        let tcp = TcpStream::connect(&dst.host).unwrap();
+        sess.set_tcp_stream(tcp);
+        sess.handshake().unwrap();
+        sess.userauth_pubkey_file(&dst.username, None, &dst.identity_file, None)
+            .unwrap();
 
         let mut channel = sess.channel_session().unwrap();
         let cmd = format!("mkdir -p {}", dst_folder.to_string_lossy());
         channel.exec(&cmd);
+
+        sess.keepalive_send().unwrap();
         dbg!(&full_dst_file_path);
-        EnsuredDestination(full_dst_file_path)
+        let sftp = sess.sftp().unwrap();
+        let file = sftp.create(&full_dst_file_path).unwrap();
+        EnsuredDestination::SftpFile(file, sess, sftp)
+    }
+}
+
+impl Write for EnsuredDestination {
+    #[inline(always)]
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            EnsuredDestination::SftpFile(f, _, _) => f.write(buf),
+            EnsuredDestination::LocalFile(f) => f.write(buf),
+        }
+    }
+
+    #[inline(always)]
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            EnsuredDestination::SftpFile(f, _, _) => f.flush(),
+            EnsuredDestination::LocalFile(f) => f.flush(),
+        }
     }
 }
