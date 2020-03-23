@@ -20,17 +20,25 @@ impl EnsuredDestination {
         snapshot: PathBuf,
         compression: &Option<Compression>,
     ) -> Self {
-        let file_ext = { "zfs.zstd" };
-        let dst_file_name = {
+        let file_ext = {
+            if compression.is_some() {
+                "zfs.zstd"
+            } else {
+                "zfs"
+            }
+        };
+
+        let today = Utc::today();
+        let dst_file_uname = {
+            let date = today.format("%Y%m%d");
             let basename = dataset.to_string_lossy().replace("/", "_");
-            let filename = format!("{}.{}", basename, file_ext);
+            let filename = format!("{}-{}.{}", date, basename, file_ext);
             PathBuf::from(filename)
         };
         let date_folder = {
-            let today = Utc::today();
+            let mut path = PathBuf::new();
             let year = today.format("%Y");
             let month = today.format("%m");
-            let mut path = PathBuf::new();
             path.push(PathBuf::from(year.to_string()));
             path.push(PathBuf::from(month.to_string()));
             path

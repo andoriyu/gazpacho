@@ -71,7 +71,7 @@ impl ExecutionContext {
     pub fn execute(mut self) -> Result<(), ZfsError> {
         let snapshots = self.make_snapshots().unwrap();
         for (dataset, snapshot) in snapshots {
-            let ensured_dst = EnsuredDestination::ensure(
+            let mut ensured_dst = EnsuredDestination::ensure(
                 &self.destination,
                 dataset,
                 snapshot.clone(),
@@ -84,6 +84,8 @@ impl ExecutionContext {
                 let mut encoder = encoder.auto_finish();
 
                 save_snapshot_to_writer(&mut encoder, snapshot)
+            } else {
+                save_snapshot_to_writer(&mut ensured_dst, snapshot)
             }
         }
         Ok(())

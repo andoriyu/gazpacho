@@ -27,8 +27,8 @@ fn main() {
             }
             compression {
                 zstd {
-                    level = 3,
-                    workers = 2,
+                    level = 16,
+                    workers = 4,
                 }
             }
         }
