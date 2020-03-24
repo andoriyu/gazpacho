@@ -9,6 +9,6 @@ unsafe fn check_root() {
     }
 }
 fn main() {
-    unsafe { check_root() }
+    //unsafe { check_root() }
     gazpacho::daemon::start_daemon();
 }

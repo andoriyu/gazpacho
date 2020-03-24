@@ -5,16 +5,21 @@ pub mod context;
 pub mod destination;
 pub mod ensured;
 pub mod logging;
+pub mod system;
 
 use slog::{info};
 use logging::GlobalLogger as Log;
 use config::Configuration;
 use std::time::Duration;
+use crate::daemon::system::bootstrap_system;
+use std::sync::mpsc;
 
 pub fn start_daemon() {
     let input = r#"
-        logging syslog {
-            enabled = on
+        logging {
+            terminal {
+                level = "DEBUG"
+            }
         }
         destination "fulcrum" {
             ssh {
@@ -48,7 +53,11 @@ pub fn start_daemon() {
 
     logging::setup_root_logger(&conf);
     //let logger = slog::Logger::new(Log::get(), o!("module" => module_path!()));
-    info!(Log::get(), "Starting Gazpacho actor system"; "module" => module_path!());
+    info!(Log::get(), "Starting Gazpacho"; "module" => module_path!());
 
-    std::thread::sleep(Duration::from_secs(5));
+    let (tx, rx) = mpsc::channel();
+
+    let system_handle = bootstrap_system(&conf, tx);
+    let lifecycle = rx.recv().unwrap();
+    system_handle.join().unwrap();
 }
