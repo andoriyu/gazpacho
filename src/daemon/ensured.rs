@@ -29,7 +29,7 @@ impl EnsuredDestination {
         };
 
         let today = Utc::today();
-        let dst_file_uname = {
+        let dst_file_name = {
             let date = today.format("%Y%m%d");
             let basename = dataset.to_string_lossy().replace("/", "_");
             let filename = format!("{}-{}.{}", date, basename, file_ext);

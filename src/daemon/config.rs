@@ -1,11 +1,9 @@
 use crate::daemon::context::ExecutionContext;
 use crate::daemon::destination::Destination;
-use getset::Getters;
 use libzetta::zfs::ZfsEngine;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use strum_macros::EnumString;
-use uclicious::{FromObject, ObjectError, ObjectRef, Uclicious};
+use uclicious::{Uclicious};
 
 #[derive(Uclicious, Clone, Debug, Hash)]
 #[ucl(skip_builder)]
@@ -39,39 +37,52 @@ pub struct Task {
     pub compression: Option<Compression>,
 }
 
-#[derive(Uclicious, Clone, Debug)]
+#[derive(Uclicious, Clone, Debug, Default)]
 #[ucl(skip_builder)]
 pub struct Log {
     #[ucl(default)]
     pub syslog: Option<LogSysLog>,
     #[ucl(default)]
-    pub terminal: Option<LogTerminal>,
+    pub terminal: LogTerminal,
 }
 
 #[derive(Uclicious, Clone, Debug)]
 #[ucl(skip_builder)]
 pub struct LogTerminal {
     #[ucl(default = "true")]
-    enabled: bool,
-    #[ucl(default = "INFO")]
-    level: String,
+    pub enabled: bool,
+    #[ucl(default = "\"INFO\".to_string()")]
+    pub level: String,
+}
+
+impl Default for LogTerminal {
+    fn default() -> Self {
+        LogTerminal {
+            enabled: true,
+            level: "INFO".to_string(),
+        }
+    }
 }
 
 #[derive(Uclicious, Clone, Debug)]
 #[ucl(skip_builder)]
 pub struct LogSysLog {
     #[ucl(default = "false")]
-    enabled: bool,
-    #[ucl(default = "INFO")]
-    level: String,
+    pub enabled: bool,
+    #[ucl(default = "\"INFO\".to_string()")]
+    pub level: String,
+    #[ucl(default = "::std::path::PathBuf::from(\"/var/run/log\")")]
+    pub socket: PathBuf,
 }
 
-#[derive(Uclicious)]
+#[derive(Uclicious, Debug)]
 pub struct Configuration {
     #[ucl(path = "destination")]
     pub destinations: HashMap<String, Destination>,
     #[ucl(path = "task")]
     pub tasks: HashMap<String, Task>,
+    #[ucl(default)]
+    pub logging: Log,
 }
 
 impl Configuration {

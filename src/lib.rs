@@ -1,5 +1,8 @@
 pub mod daemon;
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const SERVICE: &str = "gazpacho";
+
 #[cfg(test)]
 mod tests {
     #[test]
