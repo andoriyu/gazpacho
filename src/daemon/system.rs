@@ -8,6 +8,7 @@ use crate::daemon::system::messages::signals::Signals;
 use actix::prelude::*;
 use std::thread::JoinHandle;
 use std::sync::mpsc;
+use crate::daemon::system::actors::task_registry::TaskRegistry;
 
 pub mod actors;
 pub mod messages;
@@ -22,7 +23,14 @@ pub fn bootstrap_system(config: &Configuration, tx: mpsc::Sender<Addr<LifecycleM
             lcma.do_send(Signals::SIGINT);
         });
         tx.send(LifecycleManager::from_registry());
+        drop(tx);
+
+        let task_registry = TaskRegistry::from_registry();
         system.run().unwrap();
     })
 }
 
+fn shutdown()  {
+    let addr = LifecycleManager::from_registry();
+    addr.do_send(Signals::SIGINT);
+}

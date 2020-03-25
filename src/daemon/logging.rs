@@ -2,7 +2,7 @@ use crate::daemon::config::Configuration;
 use slog_syslog::{Streamer3164, Facility};
 use slog::{Drain, Logger};
 use std::str::FromStr;
-use slog::o;
+use slog::{o, error};
 use once_cell::sync::OnceCell;
 use std::ops::Deref;
 use std::borrow::Borrow;
@@ -74,5 +74,10 @@ pub fn setup_root_logger(config: &Configuration) {
         (None, Some(syslog_drain)) => { Logger::root(syslog_drain, keys) },
         (Some(term_drain), Some(syslog_drain)) => { Logger::root(slog::Duplicate::new(term_drain, syslog_drain).ignore_res(), keys)}
     };
-    GLOBAL_LOGGER.set(GlobalLogger{inner: root_logger});
+    match GLOBAL_LOGGER.set(GlobalLogger{inner: root_logger.clone()}) {
+        Ok(()) => {},
+        Err(_) => {
+            error!(root_logger, "Failed to set GLOBAL_LOGGER!");
+        }
+    };
 }

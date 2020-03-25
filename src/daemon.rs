@@ -7,15 +7,21 @@ pub mod ensured;
 pub mod logging;
 pub mod system;
 
-use slog::{info};
+use slog::{info, debug, error};
 use logging::GlobalLogger as Log;
 use config::Configuration;
 use std::time::Duration;
 use crate::daemon::system::bootstrap_system;
 use std::sync::mpsc;
+use once_cell::sync::OnceCell;
+
+pub static STARTUP_CONFIGURATION: OnceCell<Configuration> = OnceCell::new();
 
 pub fn start_daemon() {
     let input = r#"
+        daemon {
+            database = "/usr/home/andoriyu/gazpacho.sqlite3"
+        }
         logging {
             terminal {
                 level = "DEBUG"
@@ -51,9 +57,15 @@ pub fn start_daemon() {
 
     dbg!(&conf);
 
+    STARTUP_CONFIGURATION.set(conf.clone()).expect("Failed to set STARTUP_CONFIGURATION");
+
     logging::setup_root_logger(&conf);
     //let logger = slog::Logger::new(Log::get(), o!("module" => module_path!()));
     info!(Log::get(), "Starting Gazpacho"; "module" => module_path!());
+    match slog_stdlog::init() {
+        Ok(()) => debug!(Log::get(), "Installed stdlog backend"),
+        Err(e) => error!(Log::get(), "Failed to install stdlog backend: {}", e)
+    };
 
     let (tx, rx) = mpsc::channel();
 

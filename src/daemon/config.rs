@@ -75,8 +75,16 @@ pub struct LogSysLog {
     pub socket: PathBuf,
 }
 
-#[derive(Uclicious, Debug)]
+
+#[derive(Uclicious, Clone, Debug)]
+#[ucl(skip_builder)]
+pub struct Daemon {
+    pub database: PathBuf,
+}
+
+#[derive(Uclicious, Clone, Debug)]
 pub struct Configuration {
+    pub daemon: Daemon,
     #[ucl(path = "destination")]
     pub destinations: HashMap<String, Destination>,
     #[ucl(path = "task")]
