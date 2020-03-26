@@ -27,4 +27,5 @@ actix = "0.10.0-alpha.2"
 ctrlc = "3.1.4"
 rusqlite = { version = "0.21.0", features = ["bundled", "chrono"] }
 refinery =  { version = "0.2.1", features = ["rusqlite"] }
+refinery-migrations = { version = "0.2.1", features = ["rusqlite"] }
 barrel =  { version = "0.6.5", features = ["sqlite3"] }

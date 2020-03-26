@@ -1,4 +1,4 @@
-use barrel::{types, Migration, backend::Sqlite};
+use barrel::{backend::Sqlite, types, Migration};
 
 pub fn migration() -> String {
     let mut m = Migration::new();
@@ -12,14 +12,12 @@ pub fn migration() -> String {
         t.add_column("started_at", types::text().nullable(false));
         t.add_column("completed_at", types::text().nullable(true));
 
-        t.add_index("idx_pool_dataset_task",
-                    types::index(vec![
-                        "pool",
-                        "dataset",
-                        "task",
-                    ])
-                        .unique(true)
-                        .nullable(false))
+        t.add_index(
+            "idx_pool_dataset_task",
+            types::index(vec!["pool", "dataset", "task"])
+                .unique(true)
+                .nullable(false),
+        )
     });
 
     m.make::<Sqlite>()
