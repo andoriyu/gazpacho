@@ -3,7 +3,7 @@ use crate::daemon::logging::GlobalLogger;
 use crate::daemon::system::actors::destination_manager::DestinationManager;
 use crate::daemon::system::actors::zfs_manager::ZfsManager;
 use crate::daemon::system::messages::destination_manager::NewDestinations;
-use crate::daemon::system::messages::task_registry::NewConfiguration;
+use crate::daemon::system::messages::task_manager::NewConfiguration;
 use crate::daemon::system::shutdown;
 use crate::daemon::STARTUP_CONFIGURATION;
 use actix::{Actor, Addr, AsyncContext, Context, Handler, Supervised, SyncArbiter, SystemService};
@@ -38,10 +38,10 @@ impl Default for TaskManager {
                 panic!(e);
             }
         };
-        match crate::db::task_registry::runner().run(&mut db) {
-            Ok(()) => debug!(logger, "Ran task_registry migrations"),
+        match crate::db::task_manager::runner().run(&mut db) {
+            Ok(()) => debug!(logger, "Ran task_manager migrations"),
             Err(e) => {
-                error!(logger, "Failed to run task_registry: {}", e);
+                error!(logger, "Failed to run task_manager: {}", e);
                 shutdown();
                 panic!(e);
             }

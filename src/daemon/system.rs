@@ -4,7 +4,7 @@ use crate::daemon::system::actors::lifecycle::LifecycleManager;
 use crate::daemon::system::actors::task_manager::TaskManager;
 use crate::daemon::system::actors::zfs_manager::ZfsManager;
 use crate::daemon::system::messages::lifecycle::Signals;
-use crate::daemon::system::messages::task_registry::NewConfiguration;
+use crate::daemon::system::messages::task_manager::NewConfiguration;
 use crate::daemon::STARTUP_CONFIGURATION;
 use actix::prelude::*;
 use actix::{Actor, Context, Supervisor, System, SystemService};
