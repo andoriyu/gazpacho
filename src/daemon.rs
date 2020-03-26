@@ -55,15 +55,12 @@ pub fn start_daemon() {
         .unwrap();
     let conf = builder.build().unwrap();
 
-    dbg!(&conf);
-
     STARTUP_CONFIGURATION
         .set(conf.clone())
         .expect("Failed to set STARTUP_CONFIGURATION");
 
     logging::setup_root_logger(&conf);
     libzetta::GlobalLogger::setup(Log::get());
-    //let logger = slog::Logger::new(Log::get(), o!("module" => module_path!()));
     info!(Log::get(), "Starting Gazpacho"; "module" => module_path!());
     match slog_stdlog::init() {
         Ok(()) => debug!(Log::get(), "Installed stdlog backend"),
