@@ -13,13 +13,13 @@ use slog::{debug, error, info, o, warn};
 use slog_unwraps::ResultExt;
 use std::collections::HashMap;
 
-pub struct TaskRegistry {
+pub struct TaskManager {
     logger: Logger,
     db: Option<Connection>,
     tasks: HashMap<String, Task>,
     zfs_manager: Addr<ZfsManager>,
 }
-impl Default for TaskRegistry {
+impl Default for TaskManager {
     fn default() -> Self {
         let logger =
             GlobalLogger::get().new(o!("module" => module_path!(), "actor" => "TaskRegistry"));
@@ -49,7 +49,7 @@ impl Default for TaskRegistry {
 
         let zfs_manager = SyncArbiter::start(conf.parallelism as usize, ZfsManager::default);
 
-        TaskRegistry {
+        TaskManager {
             logger,
             db: Some(db),
             tasks: HashMap::new(),
@@ -58,7 +58,7 @@ impl Default for TaskRegistry {
     }
 }
 
-impl Actor for TaskRegistry {
+impl Actor for TaskManager {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
@@ -81,15 +81,15 @@ impl Actor for TaskRegistry {
     }
 }
 
-impl SystemService for TaskRegistry {}
+impl SystemService for TaskManager {}
 
-impl Supervised for TaskRegistry {
+impl Supervised for TaskManager {
     fn restarting(&mut self, _ctx: &mut Self::Context) {
         warn!(&self.logger, "Actor restarted")
     }
 }
 
-impl Handler<NewConfiguration> for TaskRegistry {
+impl Handler<NewConfiguration> for TaskManager {
     type Result = ();
 
     fn handle(&mut self, msg: NewConfiguration, _ctx: &mut Context<Self>) -> Self::Result {

@@ -1,7 +1,7 @@
 use crate::daemon::config::Configuration;
 use crate::daemon::logging::GlobalLogger;
 use crate::daemon::system::actors::lifecycle::LifecycleManager;
-use crate::daemon::system::actors::task_registry::TaskRegistry;
+use crate::daemon::system::actors::task_manager::TaskManager;
 use crate::daemon::system::actors::zfs_manager::ZfsManager;
 use crate::daemon::system::messages::lifecycle::Signals;
 use crate::daemon::system::messages::task_registry::NewConfiguration;
@@ -28,7 +28,7 @@ pub fn bootstrap_system(tx: mpsc::Sender<Addr<LifecycleManager>>) -> JoinHandle<
         tx.send(LifecycleManager::from_registry());
         drop(tx);
 
-        let _task_registry = TaskRegistry::from_registry();
+        let _task_registry = TaskManager::from_registry();
         system.run().unwrap();
     })
 }
