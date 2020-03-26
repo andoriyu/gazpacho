@@ -21,6 +21,8 @@ pub struct DestinationLocal {
 #[derive(Uclicious, Clone, Debug, Hash)]
 #[ucl(skip_builder)]
 pub struct Destination {
+    #[ucl(default = "1")]
+    pub parallelism: u32,
     #[ucl(default)]
     pub ssh: Option<DestinationSsh>,
     #[ucl(default)]

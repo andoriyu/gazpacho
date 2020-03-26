@@ -41,7 +41,7 @@ impl Handler<NewDestinations> for DestinationManager {
             .into_iter()
             .map(|(name, conf)| {
                 let n = name.clone();
-                let addr = SyncArbiter::start(1, move || {
+                let addr = SyncArbiter::start(conf.parallelism as usize, move || {
                     DestinationAgent::new(name.clone(), conf.clone())
                 });
                 (n, addr)
