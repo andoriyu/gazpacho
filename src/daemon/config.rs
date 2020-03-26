@@ -3,7 +3,7 @@ use crate::daemon::destination::Destination;
 use libzetta::zfs::ZfsEngine;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use uclicious::{Uclicious};
+use uclicious::Uclicious;
 
 #[derive(Uclicious, Clone, Debug, Hash)]
 #[ucl(skip_builder)]
@@ -75,7 +75,6 @@ pub struct LogSysLog {
     pub socket: PathBuf,
 }
 
-
 #[derive(Uclicious, Clone, Debug)]
 #[ucl(skip_builder)]
 pub struct Daemon {
@@ -91,6 +90,8 @@ pub struct Configuration {
     pub tasks: HashMap<String, Task>,
     #[ucl(default)]
     pub logging: Log,
+    #[ucl(default = "1")]
+    pub parallelism: u32,
 }
 
 impl Configuration {

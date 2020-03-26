@@ -1,21 +1,24 @@
 use crate::daemon::config::Configuration;
-use slog::Logger;
-use slog::{o, debug};
 use crate::daemon::logging::GlobalLogger;
-use actix::{System, Actor, Context, Supervisor, SystemService};
 use crate::daemon::system::actors::lifecycle::LifecycleManager;
-use crate::daemon::system::messages::signals::Signals;
-use actix::prelude::*;
-use std::thread::JoinHandle;
-use std::sync::mpsc;
 use crate::daemon::system::actors::task_registry::TaskRegistry;
+use crate::daemon::system::actors::zfs_manager::ZfsManager;
+use crate::daemon::system::messages::lifecycle::Signals;
+use crate::daemon::system::messages::task_registry::NewConfiguration;
+use crate::daemon::STARTUP_CONFIGURATION;
+use actix::prelude::*;
+use actix::{Actor, Context, Supervisor, System, SystemService};
+use slog::Logger;
+use slog::{debug, o};
+use std::sync::mpsc;
+use std::thread::JoinHandle;
 
 pub mod actors;
 pub mod messages;
 
-pub fn bootstrap_system(config: &Configuration, tx: mpsc::Sender<Addr<LifecycleManager>>) -> JoinHandle<()> {
+pub fn bootstrap_system(tx: mpsc::Sender<Addr<LifecycleManager>>) -> JoinHandle<()> {
     std::thread::spawn(move || {
-        let log= GlobalLogger::get().new(o!("module" => module_path!()));
+        let log = GlobalLogger::get().new(o!("module" => module_path!()));
         debug!(log, "Starting Gazpacho Actor System");
         let system = System::new("gazpacho");
         let lcma = LifecycleManager::from_registry();
@@ -25,12 +28,12 @@ pub fn bootstrap_system(config: &Configuration, tx: mpsc::Sender<Addr<LifecycleM
         tx.send(LifecycleManager::from_registry());
         drop(tx);
 
-        let task_registry = TaskRegistry::from_registry();
+        let _task_registry = TaskRegistry::from_registry();
         system.run().unwrap();
     })
 }
 
-fn shutdown()  {
+fn shutdown() {
     let addr = LifecycleManager::from_registry();
     addr.do_send(Signals::SIGINT);
 }
