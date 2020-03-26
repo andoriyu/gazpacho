@@ -47,7 +47,7 @@ impl Handler<Signals> for LifecycleManager {
     fn handle(&mut self, msg: Signals, _ctx: &mut Context<Self>) -> Self::Result {
         match msg {
             Signals::SIGINT => {
-                info!(self.logger, "Received SIGINT. Shutting down the system");
+                warn!(self.logger, "Received SIGINT. Shutting down the system");
                 System::current().stop();
             }
         };
