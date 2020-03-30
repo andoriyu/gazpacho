@@ -1,7 +1,11 @@
 use crate::daemon::logging::GlobalLogger;
 use crate::daemon::system::actors::destination_agent::DestinationAgent;
-use crate::daemon::system::messages::destination_manager::NewDestinations;
-use actix::{Actor, Addr, Context, Handler, Supervised, SyncArbiter, SystemService};
+use crate::daemon::system::messages::destination_manager::{NewDestinations, SaveFromPipe};
+use crate::daemon::system::messages::task_manager::ExecuteTask;
+use actix::{
+    Actor, Addr, Context, Handler, ResponseActFuture, Supervised, SyncArbiter, SystemService,
+    WrapFuture,
+};
 use slog::{debug, o, warn, Logger};
 use std::collections::HashMap;
 
@@ -48,5 +52,25 @@ impl Handler<NewDestinations> for DestinationManager {
             })
             .collect();
         self.destinations = destinations;
+    }
+}
+
+impl Handler<SaveFromPipe> for DestinationManager {
+    type Result = ResponseActFuture<Self, Result<(), String>>;
+
+    fn handle(&mut self, msg: SaveFromPipe, ctx: &mut Context<Self>) -> Self::Result {
+        let dst = msg.destination.clone();
+        let maybe_addr = self.destinations.get(msg.destination.as_str()).cloned();
+        Box::pin(
+            async move {
+                if let Some(addr) = maybe_addr {
+                    let resp = addr.send(msg).await.unwrap();
+                    resp
+                } else {
+                    Err(format!("Destination {} not found", dst))
+                }
+            }
+            .into_actor(self),
+        )
     }
 }

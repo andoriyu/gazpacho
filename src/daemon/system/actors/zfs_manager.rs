@@ -1,11 +1,20 @@
 use crate::daemon::logging::GlobalLogger;
-use actix::{Actor, Supervised, SyncContext, SystemService};
-use libzetta::zfs::DelegatingZfsEngine;
-use slog::{error, o, warn, Logger};
+use crate::daemon::system::messages::zfs_manager::{
+    GetDatasetsForTask, MakeSnapshots, SendSnapshotToPipe,
+};
+use actix::{
+    Actor, Context, Handler, MessageResult, Supervised, SyncArbiter, SyncContext, SystemService,
+};
+use libzetta::zfs::{DelegatingZfsEngine, SendFlags, ZfsEngine};
+use regex::Regex;
+use slog::{debug, error, o, warn, Logger};
+use std::collections::HashMap;
+use std::path::PathBuf;
 
 pub struct ZfsManager {
     logger: Logger,
     z: DelegatingZfsEngine,
+    re_cache: HashMap<String, Regex>,
 }
 
 impl Default for ZfsManager {
@@ -19,7 +28,12 @@ impl Default for ZfsManager {
                 panic!("Failed to initialize ZFS engine.")
             }
         };
-        ZfsManager { logger, z }
+        let re_cache = HashMap::new();
+        ZfsManager {
+            logger,
+            z,
+            re_cache,
+        }
     }
 }
 
@@ -30,5 +44,69 @@ impl Actor for ZfsManager {
 impl Supervised for ZfsManager {
     fn restarting(&mut self, _ctx: &mut Self::Context) {
         warn!(&self.logger, "Actor restarted")
+    }
+}
+
+impl Handler<GetDatasetsForTask> for ZfsManager {
+    type Result = MessageResult<GetDatasetsForTask>;
+
+    fn handle(&mut self, msg: GetDatasetsForTask, _ctx: &mut SyncContext<Self>) -> Self::Result {
+        let filter = {
+            if let Ok(re) = Regex::new(&msg.filter) {
+                re
+            } else {
+                error!(self.logger, "Failed to compile regex: {}", &msg.filter);
+                return MessageResult(Vec::new());
+            }
+        };
+
+        let volumes = self.z.list_volumes(&msg.zpool).unwrap_or_default();
+        let filesystems = self.z.list_filesystems(&msg.zpool).unwrap_or_default();
+        MessageResult(
+            volumes
+                .into_iter()
+                .chain(filesystems)
+                .filter(|dataset| filter.is_match(dataset.to_string_lossy().as_ref()))
+                .collect(),
+        )
+    }
+}
+
+impl Handler<MakeSnapshots> for ZfsManager {
+    type Result = Result<(), String>;
+
+    fn handle(&mut self, msg: MakeSnapshots, _ctx: &mut SyncContext<Self>) -> Self::Result {
+        let snapshots: Vec<(PathBuf, PathBuf)> = msg
+            .datasets
+            .iter()
+            .map(|dataset| {
+                let name = format!("{}@{}", dataset.to_str().unwrap(), &msg.snapshot);
+                (dataset.clone(), PathBuf::from(name))
+            })
+            .collect();
+        let snapshots_to_create: Vec<PathBuf> = snapshots
+            .iter()
+            .map(|(_, s)| s)
+            .cloned()
+            .filter(|s| self.z.exists(s).unwrap() == false)
+            .collect();
+
+        match self.z.snapshot(&snapshots_to_create, None) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                error!(self.logger, "Failed to create snapshots: {}", e);
+                Err(e.to_string())
+            }
+        }
+    }
+}
+
+impl Handler<SendSnapshotToPipe> for ZfsManager {
+    type Result = ();
+
+    fn handle(&mut self, msg: SendSnapshotToPipe, _ctx: &mut SyncContext<Self>) -> Self::Result {
+        debug!(self.logger, "Sending {}", msg.0.to_string_lossy());
+        self.z.send_full(&msg.0, msg.1.write, SendFlags::default());
+        debug!(self.logger, "Sent {}", msg.0.to_string_lossy());
     }
 }

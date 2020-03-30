@@ -2,16 +2,26 @@ use crate::daemon::config::Task;
 use crate::daemon::logging::GlobalLogger;
 use crate::daemon::system::actors::destination_manager::DestinationManager;
 use crate::daemon::system::actors::zfs_manager::ZfsManager;
-use crate::daemon::system::messages::destination_manager::NewDestinations;
-use crate::daemon::system::messages::task_manager::NewConfiguration;
+use crate::daemon::system::messages::destination_manager::{NewDestinations, SaveFromPipe};
+use crate::daemon::system::messages::task_manager::{ExecuteTask, NewConfiguration};
+use crate::daemon::system::messages::zfs_manager::{
+    GetDatasetsForTask, MakeSnapshots, SendSnapshotToPipe,
+};
 use crate::daemon::system::shutdown;
 use crate::daemon::STARTUP_CONFIGURATION;
-use actix::{Actor, Addr, AsyncContext, Context, Handler, Supervised, SyncArbiter, SystemService};
+use actix::{
+    Actor, ActorFuture, Addr, AsyncContext, AtomicResponse, Context, Handler, MessageResult,
+    ResponseActFuture, ResponseFuture, Supervised, SyncArbiter, SystemService, WrapFuture,
+    WrapStream,
+};
+use chrono::Utc;
+use filedescriptor::Pipe;
 use rusqlite::Connection;
 use slog::Logger;
 use slog::{debug, error, info, o, warn};
 use slog_unwraps::ResultExt;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 pub struct TaskManager {
     logger: Logger,
@@ -136,4 +146,78 @@ impl Handler<NewConfiguration> for TaskManager {
         let dst_manager = DestinationManager::from_registry();
         dst_manager.do_send(new_destinations);
     }
+}
+
+impl Handler<ExecuteTask> for TaskManager {
+    type Result = ResponseActFuture<Self, Result<(), String>>;
+
+    fn handle(&mut self, msg: ExecuteTask, ctx: &mut Context<Self>) -> Self::Result {
+        info!(self.logger, "Processing task \"{}\"", msg.0.as_str());
+        let zfs_addr = self.zfs_manager.clone();
+        let maybe_task = self.tasks.get(msg.0.as_str()).cloned();
+        let logger = self.logger.new(o!("task" => msg.0.clone()));
+        Box::pin(
+            async move {
+                if let Some(task) = maybe_task {
+                    let msg = msg;
+                    let task_name = msg.0.clone();
+                    let context = task.full_replication.as_ref().unwrap();
+                    let req =
+                        GetDatasetsForTask::new(context.zpool.clone(), context.filter.clone());
+                    let res = zfs_addr.send(req).await.unwrap();
+                    if res.is_empty() {
+                        warn!(logger, "Got no datasets to work with")
+                    } else {
+                        debug!(logger, "Got {} datasets to work with", res.len());
+                    }
+                    let mut has_errors = false;
+
+                    let snapshot_name = get_snapshot_name();
+                    let req = MakeSnapshots::new(res.clone(), snapshot_name.clone());
+                    let snap_result = zfs_addr.send(req).await.unwrap();
+                    if let Err(e) = snap_result {
+                        return Err(e);
+                    }
+
+                    let dst_manager = DestinationManager::from_registry();
+                    for dataset in res {
+                        let snapshot = PathBuf::from(format!(
+                            "{}@{}",
+                            dataset.to_string_lossy(),
+                            &snapshot_name
+                        ));
+
+                        let mut pipe = Pipe::new().unwrap();
+
+                        let dst_req = SaveFromPipe::new(
+                            task.destination.clone(),
+                            dataset.clone(),
+                            snapshot.clone(),
+                            task.compression.clone(),
+                            pipe.read.try_clone().unwrap(),
+                        );
+                        let dst_res = dst_manager.send(dst_req);
+
+                        let zfs_req = SendSnapshotToPipe(snapshot.clone(), pipe);
+                        let zfs_res = zfs_addr.send(zfs_req);
+
+                        futures::join!(zfs_res, dst_res);
+                    }
+                    info!(logger, "Done");
+                    if has_errors {
+                        Err("Some errors".to_string())
+                    } else {
+                        Ok(())
+                    }
+                } else {
+                    Err(format!("Task {} not found", msg.0.as_str()))
+                }
+            }
+            .into_actor(self),
+        )
+    }
+}
+fn get_snapshot_name() -> String {
+    let date = Utc::today().format("%Y%m%d");
+    format!("gazpacho-{}", date)
 }

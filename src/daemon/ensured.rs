@@ -14,12 +14,7 @@ pub enum EnsuredDestination {
 }
 
 impl EnsuredDestination {
-    pub fn ensure(
-        dst: &Destination,
-        dataset: PathBuf,
-        snapshot: PathBuf,
-        compression: &Option<Compression>,
-    ) -> Self {
+    pub fn ensure(dst: &Destination, dataset: PathBuf, compression: &Option<Compression>) -> Self {
         let file_ext = {
             if compression.is_some() {
                 "zfs.zstd"
@@ -39,8 +34,10 @@ impl EnsuredDestination {
             let mut path = PathBuf::new();
             let year = today.format("%Y");
             let month = today.format("%m");
+            let day = today.format("%d");
             path.push(PathBuf::from(year.to_string()));
             path.push(PathBuf::from(month.to_string()));
+            path.push(PathBuf::from(day.to_string()));
             path
         };
         if let Some(dst_ssh) = &dst.ssh {
@@ -70,9 +67,6 @@ impl EnsuredDestination {
         let mut channel = sess.channel_session().unwrap();
         let cmd = format!("mkdir -p {}", dst_folder.to_string_lossy());
         channel.exec(&cmd);
-
-        sess.keepalive_send().unwrap();
-        dbg!(&full_dst_file_path);
         let sftp = sess.sftp().unwrap();
         let file = sftp.create(&full_dst_file_path).unwrap();
         EnsuredDestination::SftpFile(file, sess, sftp)

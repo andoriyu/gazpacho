@@ -71,12 +71,8 @@ impl ExecutionContext {
     pub fn execute(mut self) -> Result<(), ZfsError> {
         let snapshots = self.make_snapshots().unwrap();
         for (dataset, snapshot) in snapshots {
-            let mut ensured_dst = EnsuredDestination::ensure(
-                &self.destination,
-                dataset,
-                snapshot.clone(),
-                &self.task.compression,
-            );
+            let mut ensured_dst =
+                EnsuredDestination::ensure(&self.destination, dataset, &self.task.compression);
             if let Some(ref compression) = self.task.compression {
                 let mut encoder = Encoder::new(ensured_dst, compression.zstd.level).unwrap();
 
