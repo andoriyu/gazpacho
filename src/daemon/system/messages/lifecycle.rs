@@ -1,7 +1,7 @@
 use actix::Message;
 
 pub enum Signals {
-    SIGINT
+    SIGINT,
 }
 
 impl Message for Signals {

@@ -1,7 +1,6 @@
 use crate::daemon::logging::GlobalLogger;
 use crate::daemon::system::actors::destination_agent::DestinationAgent;
 use crate::daemon::system::messages::destination_manager::{NewDestinations, SaveFromPipe};
-use crate::daemon::system::messages::task_manager::ExecuteTask;
 use actix::{
     Actor, Addr, Context, Handler, ResponseActFuture, Supervised, SyncArbiter, SystemService,
     WrapFuture,
@@ -58,7 +57,7 @@ impl Handler<NewDestinations> for DestinationManager {
 impl Handler<SaveFromPipe> for DestinationManager {
     type Result = ResponseActFuture<Self, Result<(), String>>;
 
-    fn handle(&mut self, msg: SaveFromPipe, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: SaveFromPipe, _ctx: &mut Context<Self>) -> Self::Result {
         let dst = msg.destination.clone();
         let maybe_addr = self.destinations.get(msg.destination.as_str()).cloned();
         Box::pin(

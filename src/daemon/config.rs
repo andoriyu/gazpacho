@@ -1,6 +1,4 @@
-use crate::daemon::context::ExecutionContext;
 use crate::daemon::destination::Destination;
-use libzetta::zfs::ZfsEngine;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use uclicious::Uclicious;
@@ -92,32 +90,4 @@ pub struct Configuration {
     pub logging: Log,
     #[ucl(default = "1")]
     pub parallelism: u32,
-}
-
-impl Configuration {
-    pub fn get_execution_context_for_task(&self, name: &str) -> Option<ExecutionContext> {
-        let task = self.tasks.get(name).unwrap();
-        let connection = self
-            .destinations
-            .get(task.destination.as_str())
-            .unwrap()
-            .clone();
-        let z = libzetta::zfs::DelegatingZfsEngine::new().unwrap();
-        let reg =
-            regex::Regex::new(task.full_replication.as_ref().unwrap().filter.as_str()).unwrap();
-
-        let fs = z.list_filesystems("z").unwrap();
-        let vols = z.list_volumes("z").unwrap();
-        let all = fs.into_iter().chain(vols);
-        let snapshots: Vec<PathBuf> = all
-            .filter(|snap| reg.is_match(snap.to_str().unwrap()))
-            .collect();
-        Some(ExecutionContext::new(
-            connection,
-            PathBuf::from(name),
-            snapshots,
-            name.to_string(),
-            task.clone(),
-        ))
-    }
 }

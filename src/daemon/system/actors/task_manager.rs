@@ -10,18 +10,17 @@ use crate::daemon::system::messages::zfs_manager::{
 use crate::daemon::system::shutdown;
 use crate::daemon::STARTUP_CONFIGURATION;
 use actix::{
-    Actor, ActorFuture, Addr, AsyncContext, AtomicResponse, Context, Handler, MessageResult,
-    ResponseActFuture, ResponseFuture, Supervised, SyncArbiter, SystemService, WrapFuture,
-    WrapStream,
+    Actor, Addr, AsyncContext, Context, Handler, ResponseActFuture, Supervised, SyncArbiter,
+    SystemService, WrapFuture,
 };
 use chrono::Utc;
 use filedescriptor::Pipe;
 use rusqlite::Connection;
 use slog::Logger;
 use slog::{debug, error, info, o, warn};
-use slog_unwraps::ResultExt;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use futures::stream::FuturesUnordered;
 
 pub struct TaskManager {
     logger: Logger,
@@ -45,7 +44,7 @@ impl Default for TaskManager {
             Err(e) => {
                 error!(logger, "Failed to open database: {}", e);
                 shutdown();
-                panic!(e);
+                Connection::open_in_memory().unwrap()
             }
         };
         match crate::db::task_manager::runner().run(&mut db) {
@@ -53,7 +52,6 @@ impl Default for TaskManager {
             Err(e) => {
                 error!(logger, "Failed to run task_manager: {}", e);
                 shutdown();
-                panic!(e);
             }
         };
 
@@ -78,7 +76,7 @@ impl Actor for TaskManager {
         ))
     }
 
-    fn stopped(&mut self, ctx: &mut Self::Context) {
+    fn stopped(&mut self, _ctx: &mut Self::Context) {
         if let Some(db) = self.db.take() {
             match db.close() {
                 Ok(()) => {}
@@ -151,7 +149,7 @@ impl Handler<NewConfiguration> for TaskManager {
 impl Handler<ExecuteTask> for TaskManager {
     type Result = ResponseActFuture<Self, Result<(), String>>;
 
-    fn handle(&mut self, msg: ExecuteTask, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: ExecuteTask, _ctx: &mut Context<Self>) -> Self::Result {
         info!(self.logger, "Processing task \"{}\"", msg.0.as_str());
         let zfs_addr = self.zfs_manager.clone();
         let maybe_task = self.tasks.get(msg.0.as_str()).cloned();
@@ -159,8 +157,6 @@ impl Handler<ExecuteTask> for TaskManager {
         Box::pin(
             async move {
                 if let Some(task) = maybe_task {
-                    let msg = msg;
-                    let task_name = msg.0.clone();
                     let context = task.full_replication.as_ref().unwrap();
                     let req =
                         GetDatasetsForTask::new(context.zpool.clone(), context.filter.clone());
@@ -187,7 +183,7 @@ impl Handler<ExecuteTask> for TaskManager {
                             &snapshot_name
                         ));
 
-                        let mut pipe = Pipe::new().unwrap();
+                        let pipe = Pipe::new().unwrap();
 
                         let dst_req = SaveFromPipe::new(
                             task.destination.clone(),
@@ -198,15 +194,46 @@ impl Handler<ExecuteTask> for TaskManager {
                         );
                         let dst_res = dst_manager.send(dst_req);
 
+                        /*if let Err(e) = dst_res {
+                            error!(logger, "Failed to send a message to destination manager: {}", e);
+                        }*/
+
                         let zfs_req = SendSnapshotToPipe(snapshot.clone(), pipe);
                         let zfs_res = zfs_addr.send(zfs_req);
+                        /*if let Err(e) = zfs_res {
+                            error!(logger, "Failed to send a message to zfs manager: {}", e);
+                        }*/
 
-                        futures::join!(zfs_res, dst_res);
+                        let result_both = futures::join!(dst_res, zfs_res);
+
+                        match result_both.0 {
+                            Ok(result) => {
+                                match result {
+                                    Ok(()) => {},
+                                    Err(e)  => {
+                                        has_errors = true;
+                                        error!(logger, "{}", e);
+                                    }
+                                }
+                            },
+                            Err(e) => {
+                                has_errors = true;
+                                error!(logger, "Failed to send a message to destination manager: {}", e);
+                            }
+                        };
+                        match result_both.1 {
+                            Ok(()) => {
+                            },
+                            Err(e) => {
+                                has_errors = true;
+                                error!(logger, "Failed to send a message to zfs manager: {}", e);
+                            }
+                        }
                     }
-                    info!(logger, "Done");
                     if has_errors {
-                        Err("Some errors".to_string())
+                        Err("Completed with errors".to_string())
                     } else {
+                        info!(logger, "Done");
                         Ok(())
                     }
                 } else {

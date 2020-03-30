@@ -1,10 +1,8 @@
 use crate::daemon::logging::GlobalLogger;
 use crate::daemon::system::messages::lifecycle::Signals;
-use actix::{
-    Actor, AsyncContext, Context, Handler, Supervised, System, SystemRegistry, SystemService,
-};
+use actix::{Actor, Context, Handler, Supervised, System, SystemService};
 use slog::Logger;
-use slog::{debug, info, o, warn};
+use slog::{debug, o, warn};
 
 pub struct LifecycleManager {
     logger: Logger,
@@ -21,11 +19,11 @@ impl Default for LifecycleManager {
 impl Actor for LifecycleManager {
     type Context = Context<Self>;
 
-    fn started(&mut self, ctx: &mut Self::Context) {
+    fn started(&mut self, _ctx: &mut Self::Context) {
         debug!(&self.logger, "Actor started");
     }
 
-    fn stopped(&mut self, ctx: &mut Self::Context) {
+    fn stopped(&mut self, _ctx: &mut Self::Context) {
         debug!(&self.logger, "Actor stopped");
     }
 }

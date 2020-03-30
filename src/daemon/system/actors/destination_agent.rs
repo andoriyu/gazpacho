@@ -2,29 +2,20 @@ use crate::daemon::destination::Destination;
 use crate::daemon::ensured::EnsuredDestination;
 use crate::daemon::logging::GlobalLogger;
 use crate::daemon::system::messages::destination_manager::SaveFromPipe;
-use actix::{
-    Actor, ActorFuture, Handler, ResponseActFuture, ResponseFuture, Supervised, SyncContext,
-    WrapFuture,
-};
-use slog::{debug, o, warn, Logger};
-use std::io::Write;
+use actix::{Actor, Handler, Supervised, SyncContext};
+use slog::{debug, error, o, warn, Logger};
 use zstd::Encoder;
 
 pub struct DestinationAgent {
-    name: String,
     logger: Logger,
     config: Destination,
 }
 
 impl DestinationAgent {
     pub fn new(name: String, config: Destination) -> Self {
-        let actor_name = format!("DestionationAgent[{}]", &name);
+        let actor_name = format!("DestinationAgent[{}]", &name);
         let logger = GlobalLogger::get().new(o!("module" => module_path!(), "actor" => actor_name));
-        DestinationAgent {
-            name,
-            logger,
-            config,
-        }
+        DestinationAgent { logger, config }
     }
 }
 impl Actor for DestinationAgent {
@@ -44,14 +35,16 @@ impl Supervised for DestinationAgent {
 impl Handler<SaveFromPipe> for DestinationAgent {
     type Result = Result<(), String>;
 
-    fn handle(&mut self, mut msg: SaveFromPipe, ctx: &mut SyncContext<Self>) -> Self::Result {
+    fn handle(&mut self, mut msg: SaveFromPipe, _ctx: &mut SyncContext<Self>) -> Self::Result {
         debug!(self.logger, "Starting saving from pipe");
         let mut ensured_dst =
-            EnsuredDestination::ensure(&self.config, msg.dataset, &msg.compression);
+            EnsuredDestination::ensure(&self.config, msg.dataset, &msg.compression, &self.logger).map_err(|e| format!("{}", e))?;
         if let Some(ref compression) = msg.compression {
             let mut encoder = Encoder::new(ensured_dst, compression.zstd.level).unwrap();
 
-            encoder.multithread(compression.zstd.workers);
+            if let Err(e) = encoder.multithread(compression.zstd.workers) {
+                error!(self.logger, "Failed to set zstd multithreading: {}", e);
+            }
             let mut encoder = encoder.auto_finish();
 
             std::io::copy(&mut msg.rx, &mut encoder).unwrap();

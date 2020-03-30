@@ -1,7 +1,6 @@
 extern crate gazpacho;
-use gazpacho::daemon::config::Configuration;
-use uclicious::{Priority, DEFAULT_DUPLICATE_STRATEGY};
 
+#[allow(dead_code)]
 unsafe fn check_root() {
     let uid = libc::getuid();
     if uid != 0 {

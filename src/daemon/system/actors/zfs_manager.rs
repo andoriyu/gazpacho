@@ -2,19 +2,15 @@ use crate::daemon::logging::GlobalLogger;
 use crate::daemon::system::messages::zfs_manager::{
     GetDatasetsForTask, MakeSnapshots, SendSnapshotToPipe,
 };
-use actix::{
-    Actor, Context, Handler, MessageResult, Supervised, SyncArbiter, SyncContext, SystemService,
-};
+use actix::{Actor, Handler, MessageResult, Supervised, SyncContext};
 use libzetta::zfs::{DelegatingZfsEngine, SendFlags, ZfsEngine};
 use regex::Regex;
 use slog::{debug, error, o, warn, Logger};
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 pub struct ZfsManager {
     logger: Logger,
     z: DelegatingZfsEngine,
-    re_cache: HashMap<String, Regex>,
 }
 
 impl Default for ZfsManager {
@@ -28,12 +24,7 @@ impl Default for ZfsManager {
                 panic!("Failed to initialize ZFS engine.")
             }
         };
-        let re_cache = HashMap::new();
-        ZfsManager {
-            logger,
-            z,
-            re_cache,
-        }
+        ZfsManager { logger, z }
     }
 }
 
@@ -106,7 +97,18 @@ impl Handler<SendSnapshotToPipe> for ZfsManager {
 
     fn handle(&mut self, msg: SendSnapshotToPipe, _ctx: &mut SyncContext<Self>) -> Self::Result {
         debug!(self.logger, "Sending {}", msg.0.to_string_lossy());
-        self.z.send_full(&msg.0, msg.1.write, SendFlags::default());
-        debug!(self.logger, "Sent {}", msg.0.to_string_lossy());
+        match self.z.send_full(&msg.0, msg.1.write, SendFlags::default()) {
+            Ok(()) => {
+                debug!(self.logger, "Sent {}", msg.0.to_string_lossy());
+            }
+            Err(e) => {
+                error!(
+                    self.logger,
+                    "Error sending snapshopt \"{}\": {}",
+                    &msg.0.to_string_lossy(),
+                    e
+                );
+            }
+        }
     }
 }

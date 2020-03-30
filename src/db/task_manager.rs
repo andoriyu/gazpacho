@@ -1,4 +1,4 @@
-use refinery::{include_migration_mods, Migration, Runner};
+use refinery::{Migration, Runner};
 use refinery_migrations::MigrationPrefix;
 
 mod v1_create_snapshots;

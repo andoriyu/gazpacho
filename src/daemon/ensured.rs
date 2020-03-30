@@ -1,12 +1,33 @@
 use crate::daemon::config::Compression;
 use crate::daemon::destination::{Destination, DestinationSsh};
 use chrono::Utc;
-use libzetta::zfs::PathExt;
+use slog::{error, Logger};
 use ssh2::{File as SftpFile, Session, Sftp};
 use std::fs::File as LocalFile;
-use std::io::{Error, Write};
+use std::io::Write;
 use std::net::TcpStream;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::fmt::{Display, Formatter};
+
+pub enum EnsuredError {
+    Ssh(ssh2::Error)
+}
+
+impl Display for EnsuredError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EnsuredError::Ssh(e) => {
+                write!(f, "{}", e)
+            }
+        }
+    }
+}
+
+impl From<ssh2::Error> for EnsuredError {
+    fn from(src: ssh2::Error) -> Self {
+        EnsuredError::Ssh(src)
+    }
+}
 
 pub enum EnsuredDestination {
     SftpFile(SftpFile, Session, Sftp),
@@ -14,7 +35,12 @@ pub enum EnsuredDestination {
 }
 
 impl EnsuredDestination {
-    pub fn ensure(dst: &Destination, dataset: PathBuf, compression: &Option<Compression>) -> Self {
+    pub fn ensure(
+        dst: &Destination,
+        dataset: PathBuf,
+        compression: &Option<Compression>,
+        logger: &Logger,
+    ) -> Result<Self, EnsuredError> {
         let file_ext = {
             if compression.is_some() {
                 "zfs.zstd"
@@ -41,11 +67,16 @@ impl EnsuredDestination {
             path
         };
         if let Some(dst_ssh) = &dst.ssh {
-            return Self::ensure_sftp_file(&dst_ssh, date_folder, dst_file_name);
+            return Self::ensure_sftp_file(&dst_ssh, date_folder, dst_file_name, logger);
         }
         unimplemented!();
     }
-    fn ensure_sftp_file(dst: &DestinationSsh, date_folder: PathBuf, dst_file: PathBuf) -> Self {
+    fn ensure_sftp_file(
+        dst: &DestinationSsh,
+        date_folder: PathBuf,
+        dst_file: PathBuf,
+        logger: &Logger,
+    ) -> Result<Self, EnsuredError> {
         let dst_folder = {
             let mut path = PathBuf::from(&dst.folder);
             path.push(date_folder);
@@ -60,16 +91,17 @@ impl EnsuredDestination {
         let mut sess = Session::new().unwrap();
         let tcp = TcpStream::connect(&dst.host).unwrap();
         sess.set_tcp_stream(tcp);
-        sess.handshake().unwrap();
-        sess.userauth_pubkey_file(&dst.username, None, &dst.identity_file, None)
-            .unwrap();
+        sess.handshake()?;
+        sess.userauth_pubkey_file(&dst.username, None, &dst.identity_file, Some("fpnvgg00"))?;
 
-        let mut channel = sess.channel_session().unwrap();
+        let mut channel = sess.channel_session()?;
         let cmd = format!("mkdir -p {}", dst_folder.to_string_lossy());
-        channel.exec(&cmd);
+        if let Err(e) = channel.exec(&cmd) {
+            error!(logger, "Failed to execute command over ssh: {}", e);
+        }
         let sftp = sess.sftp().unwrap();
-        let file = sftp.create(&full_dst_file_path).unwrap();
-        EnsuredDestination::SftpFile(file, sess, sftp)
+        let file = sftp.create(&full_dst_file_path)?;
+        Ok(EnsuredDestination::SftpFile(file, sess, sftp))
     }
 }
 

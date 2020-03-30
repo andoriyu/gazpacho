@@ -1,6 +1,5 @@
-use crate::daemon::config::Task;
 use actix::Message;
-use filedescriptor::{FileDescriptor, Pipe};
+use filedescriptor::Pipe;
 use std::path::PathBuf;
 
 pub struct GetDatasetsForTask {

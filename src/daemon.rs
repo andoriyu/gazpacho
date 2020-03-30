@@ -1,7 +1,6 @@
 use uclicious::{Priority, DEFAULT_DUPLICATE_STRATEGY};
 
 pub mod config;
-pub mod context;
 pub mod destination;
 pub mod ensured;
 pub mod logging;
@@ -11,9 +10,8 @@ use crate::daemon::system::bootstrap_system;
 use config::Configuration;
 use logging::GlobalLogger as Log;
 use once_cell::sync::OnceCell;
-use slog::{debug, error, info};
+use slog::{debug, error, info, warn};
 use std::sync::mpsc;
-use std::time::Duration;
 
 pub static STARTUP_CONFIGURATION: OnceCell<Configuration> = OnceCell::new();
 
@@ -60,8 +58,11 @@ pub fn start_daemon() {
         .expect("Failed to set STARTUP_CONFIGURATION");
 
     logging::setup_root_logger(&conf);
-    libzetta::GlobalLogger::setup(Log::get());
+    if libzetta::GlobalLogger::setup(Log::get()).is_err() {
+        warn!(Log::get(), "libZetta logger was already set!");
+    }
     info!(Log::get(), "Starting Gazpacho"; "module" => module_path!());
+    debug!(Log::get(), "Current configuration: {:?}", &conf);
     match slog_stdlog::init() {
         Ok(()) => debug!(Log::get(), "Installed stdlog backend"),
         Err(e) => error!(Log::get(), "Failed to install stdlog backend: {}", e),
@@ -70,6 +71,6 @@ pub fn start_daemon() {
     let (tx, rx) = mpsc::channel();
 
     let system_handle = bootstrap_system(tx);
-    let lifecycle = rx.recv().unwrap();
+    let _lifecycle = rx.recv().unwrap();
     system_handle.join().unwrap();
 }
