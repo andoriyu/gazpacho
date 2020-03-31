@@ -230,7 +230,14 @@ async fn process_dataset(logger: &Logger, zfs_addr: &Addr<ZfsManager>, task: &Ta
         }
     };
     match result_both.1 {
-        Ok(()) => {},
+        Ok(result) => {
+            match result {
+                Ok(()) => {},
+                Err(_) => {
+                    ret = Err(());
+                }
+            }
+        },
         Err(e) => {
             ret = Err(());
             error!(logger, "Failed to send a message to zfs manager: {}", e);
