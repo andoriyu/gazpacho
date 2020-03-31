@@ -26,6 +26,7 @@ pub fn start_daemon() {
             }
         }
         destination "fulcrum" {
+            parallelism = 2,
             ssh {
                 username = "andoriyu",
                 identity_file = "/home/andoriyu/.ssh/id_rsa",
@@ -34,10 +35,11 @@ pub fn start_daemon() {
             }
         }
         task "test" {
+            parallelism = 2,
             destination = "fulcrum",
             full_replication {
                 zpool = "z",
-                filter = "z\/usr\/ports$"
+                filter = "z\/var"
             }
             compression {
                 zstd {

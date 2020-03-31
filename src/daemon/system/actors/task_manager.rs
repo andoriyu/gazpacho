@@ -9,10 +9,7 @@ use crate::daemon::system::messages::zfs_manager::{
 };
 use crate::daemon::system::shutdown;
 use crate::daemon::STARTUP_CONFIGURATION;
-use actix::{
-    Actor, Addr, AsyncContext, Context, Handler, ResponseActFuture, Supervised, SyncArbiter,
-    SystemService, WrapFuture,
-};
+use actix::{Actor, Addr, AsyncContext, Context, Handler,  Supervised, SyncArbiter, SystemService, ResponseFuture};
 use chrono::Utc;
 use filedescriptor::Pipe;
 use rusqlite::Connection;
@@ -21,6 +18,9 @@ use slog::{debug, error, info, o, warn};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use futures::stream::FuturesUnordered;
+use futures::{StreamExt};
+use tokio::sync::Semaphore;
+
 
 pub struct TaskManager {
     logger: Logger,
@@ -145,103 +145,111 @@ impl Handler<NewConfiguration> for TaskManager {
         dst_manager.do_send(new_destinations);
     }
 }
+async fn process_task(task_name: String, maybe_task: Option<Task>, logger: Logger, zfs_addr: Addr<ZfsManager>) -> Result<(), String> {
+    if let Some(task) = maybe_task {
+        let context = task.full_replication.as_ref().unwrap();
+        let req =
+            GetDatasetsForTask::new(context.zpool.clone(), context.filter.clone());
+        let res = zfs_addr.send(req).await.unwrap();
+        if res.is_empty() {
+            warn!(logger, "Got no datasets to work with")
+        } else {
+            debug!(logger, "Got {} datasets to work with", res.len());
+        }
+        let mut has_errors = false;
+
+        let snapshot_name = get_snapshot_name();
+        let req = MakeSnapshots::new(res.clone(), snapshot_name.clone());
+        let snap_result = zfs_addr.send(req).await.unwrap();
+        if let Err(e) = snap_result {
+            return Err(e);
+        }
+
+        let dst_manager = DestinationManager::from_registry();
+        let semaphore = Semaphore::new(task.parallelism as usize);
+        let mut steps = FuturesUnordered::new();
+        for dataset in res {
+            steps.push(process_dataset(&logger, &zfs_addr, &task, &snapshot_name, &dst_manager, &semaphore, dataset));
+        }
+
+        while let Some(result) = steps.next().await {
+            if !has_errors {
+                continue;
+            }
+            if let Err(_) = result {
+                has_errors = true;
+            }
+        }
+        if has_errors {
+            Err("Completed with errors".to_string())
+        } else {
+            info!(logger, "Done");
+            Ok(())
+        }
+    } else {
+        Err(format!("Task {} not found", task_name.as_str()))
+    }
+}
+
+async fn process_dataset(logger: &Logger, zfs_addr: &Addr<ZfsManager>, task: &Task, snapshot_name: &String, dst_manager: &Addr<DestinationManager>, semaphore: &Semaphore, dataset: PathBuf) -> Result<(), ()> {
+    let logger = logger.new(o!("dataset" => dataset.to_string_lossy().to_string()));
+    debug!(logger, "Waiting for a permit to work on {}", dataset.to_string_lossy());
+    let _permit = semaphore.acquire().await;
+    debug!(logger, "Got the permit the work on {}", dataset.to_string_lossy());
+    let snapshot = PathBuf::from(format!(
+        "{}@{}",
+        dataset.to_string_lossy(),
+        &snapshot_name
+    ));
+    let pipe = Pipe::new().unwrap();
+    let dst_req = SaveFromPipe::new(
+        task.destination.clone(),
+        dataset.clone(),
+        snapshot.clone(),
+        task.compression.clone(),
+        pipe.read.try_clone().unwrap(),
+    );
+    let dst_res = dst_manager.send(dst_req);
+    let zfs_req = SendSnapshotToPipe(snapshot.clone(), pipe);
+    let zfs_res = zfs_addr.send(zfs_req);
+    let result_both = futures::join!(dst_res, zfs_res);
+    let mut ret = Ok(());
+    match result_both.0 {
+        Ok(result) => {
+            match result {
+                Ok(()) => {},
+                Err(e) => {
+                    ret = Err(());
+                    error!(logger, "{}", e);
+                }
+            }
+        },
+        Err(e) => {
+            ret = Err(());
+            error!(logger, "Failed to send a message to destination manager: {}", e);
+        }
+    };
+    match result_both.1 {
+        Ok(()) => {},
+        Err(e) => {
+            ret = Err(());
+            error!(logger, "Failed to send a message to zfs manager: {}", e);
+        }
+    }
+    ret
+}
 
 impl Handler<ExecuteTask> for TaskManager {
-    type Result = ResponseActFuture<Self, Result<(), String>>;
+    type Result = ResponseFuture<Result<(), String>>;
 
     fn handle(&mut self, msg: ExecuteTask, _ctx: &mut Context<Self>) -> Self::Result {
         info!(self.logger, "Processing task \"{}\"", msg.0.as_str());
         let zfs_addr = self.zfs_manager.clone();
         let maybe_task = self.tasks.get(msg.0.as_str()).cloned();
         let logger = self.logger.new(o!("task" => msg.0.clone()));
-        Box::pin(
-            async move {
-                if let Some(task) = maybe_task {
-                    let context = task.full_replication.as_ref().unwrap();
-                    let req =
-                        GetDatasetsForTask::new(context.zpool.clone(), context.filter.clone());
-                    let res = zfs_addr.send(req).await.unwrap();
-                    if res.is_empty() {
-                        warn!(logger, "Got no datasets to work with")
-                    } else {
-                        debug!(logger, "Got {} datasets to work with", res.len());
-                    }
-                    let mut has_errors = false;
-
-                    let snapshot_name = get_snapshot_name();
-                    let req = MakeSnapshots::new(res.clone(), snapshot_name.clone());
-                    let snap_result = zfs_addr.send(req).await.unwrap();
-                    if let Err(e) = snap_result {
-                        return Err(e);
-                    }
-
-                    let dst_manager = DestinationManager::from_registry();
-                    for dataset in res {
-                        let snapshot = PathBuf::from(format!(
-                            "{}@{}",
-                            dataset.to_string_lossy(),
-                            &snapshot_name
-                        ));
-
-                        let pipe = Pipe::new().unwrap();
-
-                        let dst_req = SaveFromPipe::new(
-                            task.destination.clone(),
-                            dataset.clone(),
-                            snapshot.clone(),
-                            task.compression.clone(),
-                            pipe.read.try_clone().unwrap(),
-                        );
-                        let dst_res = dst_manager.send(dst_req);
-
-                        /*if let Err(e) = dst_res {
-                            error!(logger, "Failed to send a message to destination manager: {}", e);
-                        }*/
-
-                        let zfs_req = SendSnapshotToPipe(snapshot.clone(), pipe);
-                        let zfs_res = zfs_addr.send(zfs_req);
-                        /*if let Err(e) = zfs_res {
-                            error!(logger, "Failed to send a message to zfs manager: {}", e);
-                        }*/
-
-                        let result_both = futures::join!(dst_res, zfs_res);
-
-                        match result_both.0 {
-                            Ok(result) => {
-                                match result {
-                                    Ok(()) => {},
-                                    Err(e)  => {
-                                        has_errors = true;
-                                        error!(logger, "{}", e);
-                                    }
-                                }
-                            },
-                            Err(e) => {
-                                has_errors = true;
-                                error!(logger, "Failed to send a message to destination manager: {}", e);
-                            }
-                        };
-                        match result_both.1 {
-                            Ok(()) => {
-                            },
-                            Err(e) => {
-                                has_errors = true;
-                                error!(logger, "Failed to send a message to zfs manager: {}", e);
-                            }
-                        }
-                    }
-                    if has_errors {
-                        Err("Completed with errors".to_string())
-                    } else {
-                        info!(logger, "Done");
-                        Ok(())
-                    }
-                } else {
-                    Err(format!("Task {} not found", msg.0.as_str()))
-                }
-            }
-            .into_actor(self),
-        )
+        Box::pin(async move {
+            process_task(msg.0, maybe_task, logger, zfs_addr).await
+        })
     }
 }
 fn get_snapshot_name() -> String {

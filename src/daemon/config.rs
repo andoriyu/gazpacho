@@ -33,6 +33,8 @@ pub struct Task {
     pub full_replication: Option<FullReplication>,
     #[ucl(default)]
     pub compression: Option<Compression>,
+    #[ucl(default = "1")]
+    pub parallelism: u32,
 }
 
 #[derive(Uclicious, Clone, Debug, Default)]

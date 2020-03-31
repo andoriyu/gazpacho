@@ -92,7 +92,7 @@ impl EnsuredDestination {
         let tcp = TcpStream::connect(&dst.host).unwrap();
         sess.set_tcp_stream(tcp);
         sess.handshake()?;
-        sess.userauth_pubkey_file(&dst.username, None, &dst.identity_file, Some("fpnvgg00"))?;
+        sess.userauth_pubkey_file(&dst.username, None, &dst.identity_file, None)?;
 
         let mut channel = sess.channel_session()?;
         let cmd = format!("mkdir -p {}", dst_folder.to_string_lossy());
