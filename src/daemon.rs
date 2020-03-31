@@ -25,6 +25,12 @@ pub fn start_daemon() {
                 level = "DEBUG"
             }
         }
+        destination "temp" {
+            parallelism = 2,
+            local {
+                folder = "/tmp/gazpacho"
+            }
+        }
         destination "fulcrum" {
             parallelism = 2,
             ssh {
@@ -36,7 +42,7 @@ pub fn start_daemon() {
         }
         task "test" {
             parallelism = 2,
-            destination = "fulcrum",
+            destination = "temp",
             full_replication {
                 zpool = "z",
                 filter = "z\/var"

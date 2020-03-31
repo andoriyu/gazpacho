@@ -1,22 +1,30 @@
 use crate::daemon::config::Compression;
-use crate::daemon::destination::{Destination, DestinationSsh};
+use crate::daemon::destination::{Destination, DestinationSsh, DestinationLocal};
 use chrono::Utc;
-use slog::{error, Logger};
+use slog::{Logger};
 use ssh2::{File as SftpFile, Session, Sftp};
-use std::fs::File as LocalFile;
+use std::fs::{File as LocalFile, File};
 use std::io::Write;
 use std::net::TcpStream;
 use std::path::PathBuf;
 use std::fmt::{Display, Formatter};
 
 pub enum EnsuredError {
-    Ssh(ssh2::Error)
+    Ssh(ssh2::Error),
+    Io(std::io::Error),
+    MissingConfiguration,
 }
 
 impl Display for EnsuredError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             EnsuredError::Ssh(e) => {
+                write!(f, "{}", e)
+            },
+            EnsuredError::MissingConfiguration => {
+                write!(f, "Missing destination configuration")
+            },
+            EnsuredError::Io(e) => {
                 write!(f, "{}", e)
             }
         }
@@ -26,6 +34,12 @@ impl Display for EnsuredError {
 impl From<ssh2::Error> for EnsuredError {
     fn from(src: ssh2::Error) -> Self {
         EnsuredError::Ssh(src)
+    }
+}
+
+impl From<std::io::Error> for EnsuredError {
+    fn from(src: std::io::Error) -> Self {
+        EnsuredError::Io(src)
     }
 }
 
@@ -39,7 +53,7 @@ impl EnsuredDestination {
         dst: &Destination,
         dataset: PathBuf,
         compression: &Option<Compression>,
-        logger: &Logger,
+        _logger: &Logger,
     ) -> Result<Self, EnsuredError> {
         let file_ext = {
             if compression.is_some() {
@@ -67,15 +81,37 @@ impl EnsuredDestination {
             path
         };
         if let Some(dst_ssh) = &dst.ssh {
-            return Self::ensure_sftp_file(&dst_ssh, date_folder, dst_file_name, logger);
+            return Self::ensure_sftp_file(&dst_ssh, date_folder, dst_file_name);
         }
-        unimplemented!();
+        if let Some(dst_local) = &dst.local {
+            return Self::ensure_local_file(&dst_local, date_folder, dst_file_name);
+        }
+        Err(EnsuredError::MissingConfiguration)
     }
+    fn ensure_local_file(
+        dst: &DestinationLocal,
+        date_folder: PathBuf,
+        dst_file: PathBuf,
+    ) -> Result<Self, EnsuredError> {
+        let dst_folder = {
+            let mut path = PathBuf::from(&dst.folder);
+            path.push(date_folder);
+            path
+        };
+        let full_dst_file_path = {
+            let mut path = PathBuf::from(&dst_folder);
+            path.push(dst_file);
+            path
+        };
+        std::fs::create_dir_all(&dst_folder)?;
+        let file = File::create(&full_dst_file_path)?;
+        Ok(EnsuredDestination::LocalFile(file))
+    }
+
     fn ensure_sftp_file(
         dst: &DestinationSsh,
         date_folder: PathBuf,
         dst_file: PathBuf,
-        logger: &Logger,
     ) -> Result<Self, EnsuredError> {
         let dst_folder = {
             let mut path = PathBuf::from(&dst.folder);
@@ -96,9 +132,7 @@ impl EnsuredDestination {
 
         let mut channel = sess.channel_session()?;
         let cmd = format!("mkdir -p {}", dst_folder.to_string_lossy());
-        if let Err(e) = channel.exec(&cmd) {
-            error!(logger, "Failed to execute command over ssh: {}", e);
-        }
+        channel.exec(&cmd)?;
         let sftp = sess.sftp().unwrap();
         let file = sftp.create(&full_dst_file_path)?;
         Ok(EnsuredDestination::SftpFile(file, sess, sftp))
