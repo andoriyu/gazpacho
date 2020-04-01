@@ -20,7 +20,7 @@ pub enum CompletionState {
     Pending,
     Completed,
     CompletedWithErrors,
-    Failed
+    Failed,
 }
 pub enum LogTask {
     Started(String),
@@ -40,25 +40,28 @@ pub enum LogStep {
     },
     Completed {
         row_id: RowId,
-        state: CompletionState
-    }
+        state: CompletionState,
+    },
 }
 
 impl LogStep {
-    pub fn started(run_id: RowId, task: String, pool: String, dataset: PathBuf, snapshot: String) -> Self {
+    pub fn started(
+        run_id: RowId,
+        task: String,
+        pool: String,
+        dataset: PathBuf,
+        snapshot: String,
+    ) -> Self {
         LogStep::Started {
             run_id,
             task,
             pool,
             dataset,
-            snapshot
+            snapshot,
         }
     }
     pub fn completed(row_id: RowId, state: CompletionState) -> Self {
-        LogStep::Completed {
-            row_id,
-            state
-        }
+        LogStep::Completed { row_id, state }
     }
 }
 

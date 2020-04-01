@@ -93,7 +93,7 @@ impl Handler<MakeSnapshots> for ZfsManager {
 }
 
 impl Handler<SendSnapshotToPipe> for ZfsManager {
-    type Result = Result<(),()>;
+    type Result = Result<(), ()>;
 
     fn handle(&mut self, msg: SendSnapshotToPipe, _ctx: &mut SyncContext<Self>) -> Self::Result {
         debug!(self.logger, "Sending {}", msg.0.to_string_lossy());

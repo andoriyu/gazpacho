@@ -38,7 +38,8 @@ impl Handler<SaveFromPipe> for DestinationAgent {
     fn handle(&mut self, mut msg: SaveFromPipe, _ctx: &mut SyncContext<Self>) -> Self::Result {
         debug!(self.logger, "Starting saving from pipe");
         let mut ensured_dst =
-            EnsuredDestination::ensure(&self.config, msg.dataset, &msg.compression, &self.logger).map_err(|e| format!("{}", e))?;
+            EnsuredDestination::ensure(&self.config, msg.dataset, &msg.compression, &self.logger)
+                .map_err(|e| format!("{}", e))?;
         if let Some(ref compression) = msg.compression {
             let mut encoder = Encoder::new(ensured_dst, compression.zstd.level).unwrap();
 

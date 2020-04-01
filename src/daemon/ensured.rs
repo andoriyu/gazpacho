@@ -1,13 +1,13 @@
 use crate::daemon::config::Compression;
-use crate::daemon::destination::{Destination, DestinationSsh, DestinationLocal};
+use crate::daemon::destination::{Destination, DestinationLocal, DestinationSsh};
 use chrono::Utc;
-use slog::{Logger};
+use slog::Logger;
 use ssh2::{File as SftpFile, Session, Sftp};
+use std::fmt::{Display, Formatter};
 use std::fs::{File as LocalFile, File};
 use std::io::Write;
 use std::net::TcpStream;
 use std::path::PathBuf;
-use std::fmt::{Display, Formatter};
 
 pub enum EnsuredError {
     Ssh(ssh2::Error),
@@ -19,15 +19,9 @@ pub enum EnsuredError {
 impl Display for EnsuredError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            EnsuredError::Ssh(e) => {
-                write!(f, "{}", e)
-            },
-            EnsuredError::MissingConfiguration => {
-                write!(f, "Missing destination configuration")
-            },
-            EnsuredError::Io(e) => {
-                write!(f, "{}", e)
-            },
+            EnsuredError::Ssh(e) => write!(f, "{}", e),
+            EnsuredError::MissingConfiguration => write!(f, "Missing destination configuration"),
+            EnsuredError::Io(e) => write!(f, "{}", e),
             EnsuredError::DuplicateConfiguration => {
                 write!(f, "Duplicate destination configuration")
             }
@@ -86,16 +80,11 @@ impl EnsuredDestination {
         };
         match (&dst.ssh, &dst.local) {
             (None, None) => Err(EnsuredError::MissingConfiguration),
-            (Some(dst_ssh), None) => {
-                Self::ensure_sftp_file(dst_ssh, date_folder, dst_file_name)
-            },
+            (Some(dst_ssh), None) => Self::ensure_sftp_file(dst_ssh, date_folder, dst_file_name),
             (None, Some(dst_local)) => {
                 Self::ensure_local_file(dst_local, date_folder, dst_file_name)
-            },
-            (Some(_), Some(_)) => {
-                Err(EnsuredError::DuplicateConfiguration)
             }
-
+            (Some(_), Some(_)) => Err(EnsuredError::DuplicateConfiguration),
         }
     }
     fn ensure_local_file(

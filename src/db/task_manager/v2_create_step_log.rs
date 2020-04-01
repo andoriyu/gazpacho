@@ -5,7 +5,10 @@ pub fn migration() -> String {
 
     m.create_table("step_log", |t| {
         t.add_column("id", types::primary().increments(true));
-        t.add_column("run_id", types::foreign("task_log", vec![String::from("id")]));
+        t.add_column(
+            "run_id",
+            types::foreign("task_log", vec![String::from("id")]),
+        );
         t.add_column("state", types::text().nullable(false));
         t.add_column("task", types::text().nullable(false));
         t.add_column("pool", types::text().nullable(false));
