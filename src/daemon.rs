@@ -4,6 +4,7 @@ pub mod config;
 pub mod destination;
 pub mod ensured;
 pub mod logging;
+pub mod strategy;
 pub mod system;
 
 use crate::daemon::system::bootstrap_system;
@@ -43,9 +44,12 @@ pub fn start_daemon() {
         task "test" {
             parallelism = 2,
             destination = "temp",
-            full_replication {
-                zpool = "z",
-                filter = "z\/var"
+
+            strategy {
+                full_replication {
+                    zpool = "z",
+                    filter = "z\/var"
+                }
             }
             compression {
                 zstd {

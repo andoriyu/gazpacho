@@ -1,5 +1,6 @@
 use crate::daemon::config::Task;
 use crate::daemon::logging::GlobalLogger;
+use crate::daemon::strategy::Strategy;
 use crate::daemon::system::actors::destination_manager::DestinationManager;
 use crate::daemon::system::actors::zfs_manager::ZfsManager;
 use crate::daemon::system::messages::destination_manager::{NewDestinations, SaveFromPipe};
@@ -173,8 +174,12 @@ async fn process_task(
                 }
             }
         }
-        let context = task.full_replication.as_ref().unwrap();
-        let req = GetDatasetsForTask::new(context.zpool.clone(), context.filter.clone());
+        let (zpool, filter) = {
+            match &task.strategy {
+                Strategy::FullReplication(stg) => (stg.filter.clone(), stg.filter.clone()),
+            }
+        };
+        let req = GetDatasetsForTask::new(zpool.clone(), filter.clone());
         let res = zfs_addr.send(req).await.unwrap();
         if res.is_empty() {
             warn!(logger, "Got no datasets to work with")
@@ -199,6 +204,7 @@ async fn process_task(
                 &logger,
                 &zfs_addr,
                 &task,
+                zpool.clone(),
                 &snapshot_name,
                 &dst_manager,
                 &semaphore,
@@ -264,6 +270,7 @@ async fn process_dataset(
     logger: &Logger,
     zfs_addr: &Addr<ZfsManager>,
     task: &Task,
+    pool: String,
     snapshot_name: &String,
     dst_manager: &Addr<DestinationManager>,
     semaphore: &Semaphore,
@@ -276,13 +283,6 @@ async fn process_dataset(
     let row_id = {
         if let Some(run_id) = run_id {
             let snapshot = snapshot_name.clone();
-            let pool = {
-                if let Some(fr) = task.full_replication.as_ref() {
-                    fr.zpool.clone()
-                } else {
-                    String::default()
-                }
-            };
             let msg = LogStep::started(run_id, task_name, pool, dataset.clone(), snapshot);
             match self_addr.send(msg).await {
                 Ok(resp) => match resp {

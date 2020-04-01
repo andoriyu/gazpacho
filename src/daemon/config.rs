@@ -1,16 +1,10 @@
 use crate::daemon::destination::Destination;
+use crate::daemon::strategy::Strategy;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use uclicious::Uclicious;
 
-#[derive(Uclicious, Clone, Debug, Hash)]
-#[ucl(skip_builder)]
-pub struct FullReplication {
-    pub zpool: String,
-    pub filter: String,
-}
-
-#[derive(Uclicious, Clone, Debug, Hash)]
+#[derive(Uclicious, Clone, Debug)]
 #[ucl(skip_builder)]
 pub struct ZstdCompression {
     #[ucl(default = "3")]
@@ -19,18 +13,17 @@ pub struct ZstdCompression {
     pub workers: u32,
 }
 
-#[derive(Uclicious, Clone, Debug, Hash)]
+#[derive(Uclicious, Clone, Debug)]
 #[ucl(skip_builder)]
 pub struct Compression {
     pub zstd: ZstdCompression,
 }
 
-#[derive(Uclicious, Clone, Debug, Hash)]
+#[derive(Uclicious, Clone, Debug)]
 #[ucl(skip_builder)]
 pub struct Task {
     pub destination: String,
-    #[ucl(default)]
-    pub full_replication: Option<FullReplication>,
+    pub strategy: Strategy,
     #[ucl(default)]
     pub compression: Option<Compression>,
     #[ucl(default = "1")]
