@@ -9,13 +9,6 @@ pub fn migration() -> String {
         t.add_column("state", types::text().nullable(false));
         t.add_column("started_at", types::text().nullable(false));
         t.add_column("completed_at", types::text().nullable(true));
-
-        t.add_index(
-            "idx_task_log_task",
-            types::index(vec!["task"])
-                .unique(false)
-                .nullable(false),
-        )
     });
 
     m.make::<Sqlite>()

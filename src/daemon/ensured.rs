@@ -13,6 +13,7 @@ pub enum EnsuredError {
     Ssh(ssh2::Error),
     Io(std::io::Error),
     MissingConfiguration,
+    DuplicateConfiguration,
 }
 
 impl Display for EnsuredError {
@@ -26,6 +27,9 @@ impl Display for EnsuredError {
             },
             EnsuredError::Io(e) => {
                 write!(f, "{}", e)
+            },
+            EnsuredError::DuplicateConfiguration => {
+                write!(f, "Duplicate destination configuration")
             }
         }
     }
@@ -80,13 +84,19 @@ impl EnsuredDestination {
             path.push(PathBuf::from(day.to_string()));
             path
         };
-        if let Some(dst_ssh) = &dst.ssh {
-            return Self::ensure_sftp_file(&dst_ssh, date_folder, dst_file_name);
+        match (&dst.ssh, &dst.local) {
+            (None, None) => Err(EnsuredError::MissingConfiguration),
+            (Some(dst_ssh), None) => {
+                Self::ensure_sftp_file(dst_ssh, date_folder, dst_file_name)
+            },
+            (None, Some(dst_local)) => {
+                Self::ensure_local_file(dst_local, date_folder, dst_file_name)
+            },
+            (Some(_), Some(_)) => {
+                Err(EnsuredError::DuplicateConfiguration)
+            }
+
         }
-        if let Some(dst_local) = &dst.local {
-            return Self::ensure_local_file(&dst_local, date_folder, dst_file_name);
-        }
-        Err(EnsuredError::MissingConfiguration)
     }
     fn ensure_local_file(
         dst: &DestinationLocal,

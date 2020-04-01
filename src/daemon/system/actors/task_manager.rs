@@ -154,7 +154,7 @@ async fn process_task(task_name: String, maybe_task: Option<Task>, logger: Logge
                     match resp {
                         Ok(id) =>  { row_id.replace(id); },
                         Err(e) => {
-                            error!(logger, "{}", e);
+                            error!(logger, "Failed to mark task started: {}", e);
                         }
                     }
                 },
@@ -224,7 +224,7 @@ async fn log_task_completion(logger: &Logger, self_addr: &Addr<TaskManager>, row
                 match resp {
                     Ok(_) => {},
                     Err(e) => {
-                        error!(logger, "{}", e);
+                        error!(logger, "Failed to mark task as complete: {}", e);
                     }
                 }
             },
@@ -253,7 +253,7 @@ async fn process_dataset(logger: &Logger, zfs_addr: &Addr<ZfsManager>, task: &Ta
                     match resp {
                         Ok(id) =>  { Some(id) },
                         Err(e) => {
-                            error!(logger, "{}", e);
+                            error!(logger, "Failed to mark step as started: {}", e);
                             None
                         }
                     }
@@ -294,7 +294,7 @@ async fn process_dataset(logger: &Logger, zfs_addr: &Addr<ZfsManager>, task: &Ta
                 Ok(()) => {},
                 Err(e) => {
                     ret = Err(());
-                    error!(logger, "{}", e);
+                    error!(logger, "Failed to mark step as complete: {}", e);
                 }
             }
         },

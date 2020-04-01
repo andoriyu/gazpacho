@@ -3,7 +3,7 @@ use crate::daemon::ensured::EnsuredDestination;
 use crate::daemon::logging::GlobalLogger;
 use crate::daemon::system::messages::destination_manager::SaveFromPipe;
 use actix::{Actor, Handler, Supervised, SyncContext};
-use slog::{debug, error, o, warn, Logger};
+use slog::{debug, o, warn, Logger};
 use zstd::Encoder;
 
 pub struct DestinationAgent {
@@ -43,7 +43,7 @@ impl Handler<SaveFromPipe> for DestinationAgent {
             let mut encoder = Encoder::new(ensured_dst, compression.zstd.level).unwrap();
 
             if let Err(e) = encoder.multithread(compression.zstd.workers) {
-                error!(self.logger, "Failed to set zstd multithreading: {}", e);
+                warn!(self.logger, "Failed to set zstd multithreading: {}", e);
             }
             let mut encoder = encoder.auto_finish();
 

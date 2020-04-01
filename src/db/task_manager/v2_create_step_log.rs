@@ -13,15 +13,6 @@ pub fn migration() -> String {
         t.add_column("snapshot", types::text().nullable(false));
         t.add_column("started_at", types::text().nullable(false));
         t.add_column("completed_at", types::text().nullable(true));
-
-        t.add_index(
-            "idx_step_log_pool_dataset_task",
-            types::index(vec!["pool", "dataset", "task"])
-                .unique(true)
-                .nullable(false),
-        );
-        t.add_index("idx_step_log_run_id",
-        types::index(vec!["run_id"]));
     });
 
     m.make::<Sqlite>()
