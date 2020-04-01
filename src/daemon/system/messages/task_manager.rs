@@ -1,4 +1,4 @@
-use crate::daemon::config::Configuration;
+use crate::daemon::config::{Configuration, Task};
 use actix::Message;
 use std::path::PathBuf;
 
@@ -67,4 +67,29 @@ impl LogStep {
 
 impl Message for LogStep {
     type Result = Result<RowId, rusqlite::Error>;
+}
+
+pub struct NeedsReset {
+    pub task_name: String,
+    pub task: Task,
+}
+
+impl NeedsReset {
+    pub fn new(task_name: String, task: Task) -> Self {
+        NeedsReset { task_name, task }
+    }
+}
+
+impl Message for NeedsReset {
+    type Result = Result<bool, rusqlite::Error>;
+}
+
+pub struct ResetTimesSinceReset(String);
+impl Message for ResetTimesSinceReset {
+    type Result = Result<(), rusqlite::Error>;
+}
+
+pub struct IncrementTimesSinceReset(String);
+impl Message for IncrementTimesSinceReset {
+    type Result = Result<(), rusqlite::Error>;
 }

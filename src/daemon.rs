@@ -46,7 +46,7 @@ pub fn start_daemon() {
             destination = "temp",
 
             strategy {
-                full_replication {
+                full {
                     zpool = "z",
                     filter = "z\/var"
                 }

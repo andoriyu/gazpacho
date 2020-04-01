@@ -4,9 +4,7 @@ use crate::daemon::strategy::Strategy;
 use crate::daemon::system::actors::destination_manager::DestinationManager;
 use crate::daemon::system::actors::zfs_manager::ZfsManager;
 use crate::daemon::system::messages::destination_manager::{NewDestinations, SaveFromPipe};
-use crate::daemon::system::messages::task_manager::{
-    CompletionState, ExecuteTask, LogStep, LogTask, NewConfiguration, RowId,
-};
+use crate::daemon::system::messages::task_manager::{CompletionState, ExecuteTask, LogStep, LogTask, NewConfiguration, RowId, NeedsReset};
 use crate::daemon::system::messages::zfs_manager::{
     GetDatasetsForTask, MakeSnapshots, SendSnapshotToPipe,
 };
@@ -16,11 +14,11 @@ use actix::{
     Actor, Addr, AsyncContext, Context, Handler, ResponseFuture, Supervised, SyncArbiter,
     SystemService,
 };
-use chrono::Utc;
+use chrono::{Utc, DateTime, Duration};
 use filedescriptor::Pipe;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use slog::Logger;
 use slog::{debug, error, info, o, warn};
 use std::collections::HashMap;
@@ -61,7 +59,6 @@ impl Default for TaskManager {
         };
 
         let zfs_manager = SyncArbiter::start(conf.parallelism as usize, ZfsManager::default);
-
         TaskManager {
             logger,
             db: Some(db),
@@ -176,7 +173,8 @@ async fn process_task(
         }
         let (zpool, filter) = {
             match &task.strategy {
-                Strategy::FullReplication(stg) => (stg.filter.clone(), stg.filter.clone()),
+                Strategy::Full(stg) => (stg.filter.clone(), stg.filter.clone()),
+                Strategy::Incremental(stg) => (stg.filter.clone(), stg.filter.clone()),
             }
         };
         let req = GetDatasetsForTask::new(zpool.clone(), filter.clone());
@@ -186,6 +184,33 @@ async fn process_task(
         } else {
             debug!(logger, "Got {} datasets to work with", res.len());
         }
+
+        let needs_reset = {
+            let msg = NeedsReset::new(task_name.clone(), task.clone());
+            match self_addr.send(msg).await {
+                Ok(result) => {
+                    match result {
+                        Ok(needs_reset) => needs_reset,
+                        Err(e) => {
+                            error!(logger, "Failed to determine if reset is required, defaulting to strategy default: {}", e);
+                            task.strategy.needs_reset_default()
+                        }
+                    }
+                },
+                Err(e) => {
+                    error!(logger, "Failed to send a message to self: {}", e);
+                    task.strategy.needs_reset_default()
+                }
+            }
+        };
+
+        let sources: HashMap<PathBuf, String> = {
+            if needs_reset {
+                unimplemented!();
+            } else {
+                HashMap::new()
+            }
+        };
         let mut has_errors = false;
 
         let snapshot_name = get_snapshot_name();
@@ -443,6 +468,48 @@ impl Handler<LogStep> for TaskManager {
                 stmt.execute(params![state, now, row_id])?;
 
                 Ok(row_id)
+            }
+        }
+    }
+}
+
+impl Handler<NeedsReset> for TaskManager {
+    type Result = Result<bool, rusqlite::Error>;
+
+    fn handle(&mut self, msg: NeedsReset, _ctx: &mut Context<Self>) -> Self::Result {
+        let conn = self.db.as_ref().unwrap();
+        match msg.task.strategy {
+            Strategy::Full(_) => Ok(false),
+            Strategy::Incremental(stg) => {
+                let mut needs_reset = true;
+                let current = {
+                    let mut stmt = conn
+                        .prepare("SELECT (count, reset_at) FROM reset_count WHERE task = ?1")?;
+
+                    stmt.query_row(&[msg.task_name], |row| {
+                        let count: i64 = row.get(0)?;
+                        let date: String = row.get(1)?;
+                        Ok((count, date))
+                    }).optional()?
+                };
+                if let Some((count, last_date)) = current {
+                    if let Some(max_times_since_last_reset) = stg.runs_before_reset {
+                        if count < max_times_since_last_reset {
+                            needs_reset = false;
+                        }
+                    }
+                    if let Some(max_days_since_last_reset) = stg.days_before_reset {
+                        let date: DateTime<Utc> = DateTime::parse_from_rfc3339(&last_date).unwrap().into();
+                        let today = Utc::now();
+                        let time_since = today - date;
+                        let max_time_since = Duration::days(max_days_since_last_reset);
+                        if time_since < max_time_since {
+                            needs_reset = false
+                        }
+                    }
+                }
+
+                Ok(needs_reset)
             }
         }
     }
