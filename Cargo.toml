@@ -18,8 +18,8 @@ slog-term = "2"
 slog-stdlog = "4"
 ssh2 = "0.8.0"
 uclicious = "0.1.2"
-zstd = { version = "0.5", default-features = false }
-zstd-sys = { version = "1.4", default-features = false, features = ["pkg-config", "zstdmt"] }
+zstd = { version = "0.5" }
+zstd-sys = { version = "1.4", features = ["zstdmt", "zstdmt"], path = "/home/andoriyu/dev/github.com/andoriyu/zstd-rs/zstd-safe/zstd-sys" }
 once_cell = "1.3"
 actix = "0.10.0-alpha.2"
 ctrlc = "3.1"
@@ -29,3 +29,6 @@ refinery-migrations = { version = "0.2", features = ["rusqlite"] }
 barrel =  { version = "0.6", features = ["sqlite3"] }
 futures = "0.3.4"
 tokio = { version = "0.2", features = ["sync"] }
+
+[patch.crates-io]
+zstd-sys = { version = "1.4", features = ["zstdmt", "zstdmt"], path = "/home/andoriyu/dev/github.com/andoriyu/zstd-rs/zstd-safe/zstd-sys" }

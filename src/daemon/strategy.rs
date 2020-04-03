@@ -20,6 +20,14 @@ impl Strategy {
     }
 }
 
+impl Strategy {
+    pub fn get_zpool_and_filter(&self) -> (String, String) {
+        match self {
+            Strategy::FullReplication(stg) => (stg.filter.clone(), stg.filter.clone()),
+        }
+    }
+}
+
 impl FromObject<ObjectRef> for Strategy {
     // There is unwrap in it, but that's okay because nested keys always have key name.
     fn try_from(value: ObjectRef) -> Result<Self, ObjectError> {

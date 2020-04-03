@@ -25,6 +25,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use tokio::sync::Semaphore;
 
+mod steps;
+
 pub struct TaskManager {
     logger: Logger,
     db: Option<Connection>,
