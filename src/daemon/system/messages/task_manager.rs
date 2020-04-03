@@ -1,5 +1,7 @@
 use crate::daemon::config::{Configuration, Task};
+use crate::daemon::system::actors::task_manager::steps::StepError;
 use actix::Message;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 pub type RowId = i64;
@@ -12,7 +14,7 @@ impl Message for NewConfiguration {
 pub struct ExecuteTask(pub String);
 
 impl Message for ExecuteTask {
-    type Result = Result<(), String>;
+    type Result = Result<(), StepError>;
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -37,6 +39,7 @@ pub enum LogStep {
         pool: String,
         dataset: PathBuf,
         snapshot: String,
+        source: Option<PathBuf>,
     },
     Completed {
         row_id: RowId,
@@ -51,6 +54,7 @@ impl LogStep {
         pool: String,
         dataset: PathBuf,
         snapshot: String,
+        source: Option<PathBuf>,
     ) -> Self {
         LogStep::Started {
             run_id,
@@ -58,6 +62,7 @@ impl LogStep {
             pool,
             dataset,
             snapshot,
+            source,
         }
     }
     pub fn completed(row_id: RowId, state: CompletionState) -> Self {
@@ -92,4 +97,24 @@ impl Message for ResetTimesSinceReset {
 pub struct IncrementTimesSinceReset(String);
 impl Message for IncrementTimesSinceReset {
     type Result = Result<(), rusqlite::Error>;
+}
+
+pub struct GetSources {
+    pub task_name: String,
+    pub task: Task,
+    pub datasets: Vec<PathBuf>,
+}
+
+impl GetSources {
+    pub fn new(task_name: String, task: Task, datasets: Vec<PathBuf>) -> Self {
+        GetSources {
+            task_name,
+            task,
+            datasets,
+        }
+    }
+}
+
+impl Message for GetSources {
+    type Result = Result<HashMap<PathBuf, PathBuf>, rusqlite::Error>;
 }

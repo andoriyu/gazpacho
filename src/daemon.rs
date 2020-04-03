@@ -43,12 +43,13 @@ pub fn start_daemon() {
         }
         task "test" {
             parallelism = 2,
-            destination = "temp",
+            destination = "fulcrum",
 
             strategy {
-                full {
+                incremental {
                     zpool = "z",
-                    filter = "z\/var"
+                    filter = "z\/usr\/ports$",
+                    days_before_reset = 3,
                 }
             }
             compression {
@@ -73,7 +74,7 @@ pub fn start_daemon() {
     if libzetta::GlobalLogger::setup(Log::get()).is_err() {
         warn!(Log::get(), "libZetta logger was already set!");
     }
-    info!(Log::get(), "Starting Gazpacho"; "module" => module_path!());
+    info!(Log::get(), "Startup sequence initialized"; "module" => module_path!());
     debug!(Log::get(), "Current configuration: {:?}", &conf);
     match slog_stdlog::init() {
         Ok(()) => debug!(Log::get(), "Installed stdlog backend"),

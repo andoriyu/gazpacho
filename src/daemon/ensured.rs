@@ -55,7 +55,7 @@ impl EnsuredDestination {
     ) -> Result<Self, EnsuredError> {
         let file_ext = {
             if compression.is_some() {
-                "zfs.zstd"
+                "zfs.zst"
             } else {
                 "zfs"
             }

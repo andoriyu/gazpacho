@@ -32,8 +32,8 @@ impl Message for MakeSnapshots {
     type Result = Result<(), String>;
 }
 
-pub struct SendSnapshotToPipe(pub PathBuf, pub Pipe);
+pub struct SendSnapshotToPipe(pub PathBuf, pub Option<PathBuf>, pub Pipe);
 
 impl Message for SendSnapshotToPipe {
-    type Result = Result<(), ()>;
+    type Result = Result<(), String>;
 }

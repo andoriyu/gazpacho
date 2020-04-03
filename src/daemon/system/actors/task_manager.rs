@@ -2,11 +2,11 @@ use crate::daemon::config::Task;
 use crate::daemon::logging::GlobalLogger;
 use crate::daemon::strategy::Strategy;
 use crate::daemon::system::actors::destination_manager::DestinationManager;
+use crate::daemon::system::actors::task_manager::steps::StepError;
 use crate::daemon::system::actors::zfs_manager::ZfsManager;
-use crate::daemon::system::messages::destination_manager::{NewDestinations, SaveFromPipe};
-use crate::daemon::system::messages::task_manager::{CompletionState, ExecuteTask, LogStep, LogTask, NewConfiguration, RowId, NeedsReset};
-use crate::daemon::system::messages::zfs_manager::{
-    GetDatasetsForTask, MakeSnapshots, SendSnapshotToPipe,
+use crate::daemon::system::messages::destination_manager::NewDestinations;
+use crate::daemon::system::messages::task_manager::{
+    CompletionState, ExecuteTask, GetSources, LogStep, LogTask, NeedsReset, NewConfiguration, RowId,
 };
 use crate::daemon::system::shutdown;
 use crate::daemon::STARTUP_CONFIGURATION;
@@ -14,18 +14,14 @@ use actix::{
     Actor, Addr, AsyncContext, Context, Handler, ResponseFuture, Supervised, SyncArbiter,
     SystemService,
 };
-use chrono::{Utc, DateTime, Duration};
-use filedescriptor::Pipe;
-use futures::stream::FuturesUnordered;
-use futures::StreamExt;
+use chrono::{DateTime, Duration, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use slog::Logger;
-use slog::{debug, error, info, o, warn};
+use slog::{debug, error, o, warn};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use tokio::sync::Semaphore;
 
-mod steps;
+pub mod steps;
 
 pub struct TaskManager {
     logger: Logger,
@@ -149,269 +145,18 @@ impl Handler<NewConfiguration> for TaskManager {
         dst_manager.do_send(new_destinations);
     }
 }
-async fn process_task(
-    task_name: String,
-    maybe_task: Option<Task>,
-    logger: Logger,
-    zfs_addr: Addr<ZfsManager>,
-    self_addr: Addr<TaskManager>,
-) -> Result<(), String> {
-    if let Some(task) = maybe_task {
-        let mut row_id = Option::None;
-        {
-            match self_addr.send(LogTask::Started(task_name.clone())).await {
-                Ok(resp) => match resp {
-                    Ok(id) => {
-                        row_id.replace(id);
-                    }
-                    Err(e) => {
-                        error!(logger, "Failed to mark task started: {}", e);
-                    }
-                },
-                Err(e) => {
-                    error!(logger, "Failed to send a message to self: {}", e);
-                }
-            }
-        }
-        let (zpool, filter) = {
-            match &task.strategy {
-                Strategy::Full(stg) => (stg.filter.clone(), stg.filter.clone()),
-                Strategy::Incremental(stg) => (stg.filter.clone(), stg.filter.clone()),
-            }
-        };
-        let req = GetDatasetsForTask::new(zpool.clone(), filter.clone());
-        let res = zfs_addr.send(req).await.unwrap();
-        if res.is_empty() {
-            warn!(logger, "Got no datasets to work with")
-        } else {
-            debug!(logger, "Got {} datasets to work with", res.len());
-        }
-
-        let needs_reset = {
-            let msg = NeedsReset::new(task_name.clone(), task.clone());
-            match self_addr.send(msg).await {
-                Ok(result) => {
-                    match result {
-                        Ok(needs_reset) => needs_reset,
-                        Err(e) => {
-                            error!(logger, "Failed to determine if reset is required, defaulting to strategy default: {}", e);
-                            task.strategy.needs_reset_default()
-                        }
-                    }
-                },
-                Err(e) => {
-                    error!(logger, "Failed to send a message to self: {}", e);
-                    task.strategy.needs_reset_default()
-                }
-            }
-        };
-
-        let sources: HashMap<PathBuf, String> = {
-            if needs_reset {
-                unimplemented!();
-            } else {
-                HashMap::new()
-            }
-        };
-        let mut has_errors = false;
-
-        let snapshot_name = get_snapshot_name();
-        let req = MakeSnapshots::new(res.clone(), snapshot_name.clone());
-        let snap_result = zfs_addr.send(req).await.unwrap();
-        if let Err(e) = snap_result {
-            log_task_completion(&logger, &self_addr, row_id.clone(), CompletionState::Failed).await;
-            return Err(e);
-        }
-
-        let dst_manager = DestinationManager::from_registry();
-        let semaphore = Semaphore::new(task.parallelism as usize);
-        let mut steps = FuturesUnordered::new();
-        for dataset in res {
-            steps.push(process_dataset(
-                &logger,
-                &zfs_addr,
-                &task,
-                zpool.clone(),
-                &snapshot_name,
-                &dst_manager,
-                &semaphore,
-                dataset,
-                self_addr.clone(),
-                row_id,
-                task_name.clone(),
-            ));
-        }
-
-        while let Some(result) = steps.next().await {
-            if !has_errors {
-                continue;
-            }
-            if let Err(_) = result {
-                has_errors = true;
-            }
-        }
-        {
-            let state = if has_errors {
-                CompletionState::CompletedWithErrors
-            } else {
-                CompletionState::Completed
-            };
-            log_task_completion(&logger, &self_addr, row_id, state).await;
-        }
-        if has_errors {
-            Err("Completed with errors".to_string())
-        } else {
-            info!(logger, "Done");
-            Ok(())
-        }
-    } else {
-        Err(format!("Task {} not found", task_name.as_str()))
-    }
-}
-
-async fn log_task_completion(
-    logger: &Logger,
-    self_addr: &Addr<TaskManager>,
-    row_id: Option<i64>,
-    state: CompletionState,
-) -> () {
-    if let Some(row_id) = row_id {
-        match self_addr
-            .send(LogTask::Completed(row_id.clone(), state))
-            .await
-        {
-            Ok(resp) => match resp {
-                Ok(_) => {}
-                Err(e) => {
-                    error!(logger, "Failed to mark task as complete: {}", e);
-                }
-            },
-            Err(e) => {
-                error!(logger, "Failed to send a message to self: {}", e);
-            }
-        }
-    }
-}
-
-async fn process_dataset(
-    logger: &Logger,
-    zfs_addr: &Addr<ZfsManager>,
-    task: &Task,
-    pool: String,
-    snapshot_name: &String,
-    dst_manager: &Addr<DestinationManager>,
-    semaphore: &Semaphore,
-    dataset: PathBuf,
-    self_addr: Addr<TaskManager>,
-    run_id: Option<RowId>,
-    task_name: String,
-) -> Result<(), ()> {
-    let logger = logger.new(o!("dataset" => dataset.to_string_lossy().to_string()));
-    let row_id = {
-        if let Some(run_id) = run_id {
-            let snapshot = snapshot_name.clone();
-            let msg = LogStep::started(run_id, task_name, pool, dataset.clone(), snapshot);
-            match self_addr.send(msg).await {
-                Ok(resp) => match resp {
-                    Ok(id) => Some(id),
-                    Err(e) => {
-                        error!(logger, "Failed to mark step as started: {}", e);
-                        None
-                    }
-                },
-                Err(e) => {
-                    error!(logger, "Failed to send a message to self: {}", e);
-                    None
-                }
-            }
-        } else {
-            None
-        }
-    };
-    debug!(
-        logger,
-        "Waiting for a permit to work on {}",
-        dataset.to_string_lossy()
-    );
-    let _permit = semaphore.acquire().await;
-    debug!(
-        logger,
-        "Got the permit the work on {}",
-        dataset.to_string_lossy()
-    );
-    let snapshot = PathBuf::from(format!("{}@{}", dataset.to_string_lossy(), &snapshot_name));
-    let pipe = Pipe::new().unwrap();
-    let dst_req = SaveFromPipe::new(
-        task.destination.clone(),
-        dataset.clone(),
-        snapshot.clone(),
-        task.compression.clone(),
-        pipe.read.try_clone().unwrap(),
-    );
-    let dst_res = dst_manager.send(dst_req);
-    let zfs_req = SendSnapshotToPipe(snapshot.clone(), pipe);
-    let zfs_res = zfs_addr.send(zfs_req);
-    let result_both = futures::join!(dst_res, zfs_res);
-    let mut ret = Ok(());
-    match result_both.0 {
-        Ok(result) => match result {
-            Ok(()) => {}
-            Err(e) => {
-                ret = Err(());
-                error!(logger, "Failed to mark step as complete: {}", e);
-            }
-        },
-        Err(e) => {
-            ret = Err(());
-            error!(
-                logger,
-                "Failed to send a message to destination manager: {}", e
-            );
-        }
-    };
-    match result_both.1 {
-        Ok(result) => match result {
-            Ok(()) => {}
-            Err(_) => {
-                ret = Err(());
-            }
-        },
-        Err(e) => {
-            ret = Err(());
-            error!(logger, "Failed to send a message to zfs manager: {}", e);
-        }
-    }
-    {
-        if let Some(row_id) = row_id {
-            let state = if ret.is_ok() {
-                CompletionState::Completed
-            } else {
-                CompletionState::Failed
-            };
-            let msg = LogStep::completed(row_id, state);
-
-            match self_addr.send(msg).await {
-                Ok(_) => {}
-                Err(e) => {
-                    error!(logger, "Failed to send a message to self: {}", e);
-                }
-            }
-        }
-    }
-
-    ret
-}
 
 impl Handler<ExecuteTask> for TaskManager {
-    type Result = ResponseFuture<Result<(), String>>;
+    type Result = ResponseFuture<Result<(), StepError>>;
 
     fn handle(&mut self, msg: ExecuteTask, ctx: &mut Context<Self>) -> Self::Result {
-        info!(self.logger, "Processing task \"{}\"", msg.0.as_str());
         let zfs_addr = self.zfs_manager.clone();
         let maybe_task = self.tasks.get(msg.0.as_str()).cloned();
         let logger = self.logger.new(o!("task" => msg.0.clone()));
         let self_addr = ctx.address();
-        Box::pin(async move { process_task(msg.0, maybe_task, logger, zfs_addr, self_addr).await })
+        Box::pin(async move {
+            steps::process_task_step_wrapper(msg.0, maybe_task, logger, zfs_addr, self_addr).await
+        })
     }
 }
 
@@ -455,12 +200,15 @@ impl Handler<LogStep> for TaskManager {
                 pool,
                 dataset,
                 snapshot,
+                source,
             } => {
                 let state = format!("{:?}", CompletionState::Pending);
                 let dataset = dataset.to_string_lossy().to_string();
-                let mut stmt = conn.prepare("INSERT INTO step_log (run_id, state, task, pool, dataset, snapshot, started_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")?;
-                let row_id =
-                    stmt.insert(params![run_id, state, task, pool, dataset, snapshot, now,])?;
+                let source = source.map(|e| e.to_string_lossy().to_string());
+                let mut stmt = conn.prepare("INSERT INTO step_log (run_id, state, task, pool, dataset, snapshot, source, started_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")?;
+                let row_id = stmt.insert(params![
+                    run_id, state, task, pool, dataset, snapshot, source, now,
+                ])?;
                 Ok(row_id)
             }
             LogStep::Completed { row_id, state } => {
@@ -485,14 +233,15 @@ impl Handler<NeedsReset> for TaskManager {
             Strategy::Incremental(stg) => {
                 let mut needs_reset = true;
                 let current = {
-                    let mut stmt = conn
-                        .prepare("SELECT (count, reset_at) FROM reset_count WHERE task = ?1")?;
+                    let mut stmt =
+                        conn.prepare("SELECT count, reset_at FROM reset_count WHERE task = ?1")?;
 
                     stmt.query_row(&[msg.task_name], |row| {
                         let count: i64 = row.get(0)?;
                         let date: String = row.get(1)?;
                         Ok((count, date))
-                    }).optional()?
+                    })
+                    .optional()?
                 };
                 if let Some((count, last_date)) = current {
                     if let Some(max_times_since_last_reset) = stg.runs_before_reset {
@@ -501,7 +250,8 @@ impl Handler<NeedsReset> for TaskManager {
                         }
                     }
                     if let Some(max_days_since_last_reset) = stg.days_before_reset {
-                        let date: DateTime<Utc> = DateTime::parse_from_rfc3339(&last_date).unwrap().into();
+                        let date: DateTime<Utc> =
+                            DateTime::parse_from_rfc3339(&last_date).unwrap().into();
                         let today = Utc::now();
                         let time_since = today - date;
                         let max_time_since = Duration::days(max_days_since_last_reset);
@@ -510,14 +260,43 @@ impl Handler<NeedsReset> for TaskManager {
                         }
                     }
                 }
-
                 Ok(needs_reset)
             }
         }
     }
 }
 
-fn get_snapshot_name() -> String {
-    let date = Utc::today().format("%Y%m%d");
-    format!("gazpacho-{}", date)
+impl Handler<GetSources> for TaskManager {
+    type Result = Result<HashMap<PathBuf, PathBuf>, rusqlite::Error>;
+
+    fn handle(&mut self, msg: GetSources, _ctx: &mut Context<Self>) -> Self::Result {
+        let mut ret = HashMap::with_capacity(msg.datasets.len());
+        let conn = self.db.as_ref().unwrap();
+
+        let (pool, _) = msg.task.strategy.get_zpool_and_filter();
+        let state = format!("{:?}", CompletionState::Completed);
+        let mut last_snapshot_stms = conn.prepare(
+            "SELECT snapshot FROM step_log WHERE dataset = ?1 AND pool = ?2 AND state = ?3 ORDER BY completed_at DESC",
+        ).map_err(|e| {
+            error!(self.logger, "Failed to prepare last snapshot statement: {}", e);
+            e
+        })?;
+
+        dbg!("hit");
+
+        for dataset in msg.datasets {
+            let dataset_as_str = dataset.to_string_lossy().to_string();
+            let snapshot = last_snapshot_stms
+                .query_row(&[&dataset_as_str, &pool, &state], |row| {
+                    let snapshot: String = row.get(0)?;
+                    Ok(snapshot)
+                })
+                .optional()?;
+            if let Some(snap) = snapshot {
+                let snapshot_full = format!("{}@{}", &dataset_as_str, snap).into();
+                ret.insert(dataset.clone(), snapshot_full);
+            }
+        }
+        Ok(ret)
+    }
 }

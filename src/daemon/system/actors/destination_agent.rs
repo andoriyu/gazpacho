@@ -36,7 +36,7 @@ impl Handler<SaveFromPipe> for DestinationAgent {
     type Result = Result<(), String>;
 
     fn handle(&mut self, mut msg: SaveFromPipe, _ctx: &mut SyncContext<Self>) -> Self::Result {
-        debug!(self.logger, "Starting saving from pipe");
+        debug!(self.logger, "Saving from pipe");
         let mut ensured_dst =
             EnsuredDestination::ensure(&self.config, msg.dataset, &msg.compression, &self.logger)
                 .map_err(|e| format!("{}", e))?;
@@ -52,7 +52,7 @@ impl Handler<SaveFromPipe> for DestinationAgent {
         } else {
             std::io::copy(&mut msg.rx, &mut ensured_dst).unwrap();
         }
-        debug!(self.logger, "Closing destination");
+        debug!(self.logger, "Closing pipe");
         Ok(())
     }
 }

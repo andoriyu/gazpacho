@@ -93,11 +93,27 @@ impl Handler<MakeSnapshots> for ZfsManager {
 }
 
 impl Handler<SendSnapshotToPipe> for ZfsManager {
-    type Result = Result<(), ()>;
+    type Result = Result<(), String>;
 
     fn handle(&mut self, msg: SendSnapshotToPipe, _ctx: &mut SyncContext<Self>) -> Self::Result {
-        debug!(self.logger, "Sending {}", msg.0.to_string_lossy());
-        match self.z.send_full(&msg.0, msg.1.write, SendFlags::default()) {
+        let result = if let Some(source) = msg.1 {
+            debug!(
+                self.logger,
+                "Sending incremental snapshot from {} to {} to pipe",
+                &source.to_string_lossy(),
+                msg.0.to_string_lossy()
+            );
+            self.z
+                .send_incremental(&msg.0, &source, msg.2.write, SendFlags::default())
+        } else {
+            debug!(
+                self.logger,
+                "Sending full snapshot for {} to pipe",
+                msg.0.to_string_lossy()
+            );
+            self.z.send_full(&msg.0, msg.2.write, SendFlags::default())
+        };
+        match result {
             Ok(()) => {
                 debug!(self.logger, "Sent {}", msg.0.to_string_lossy());
                 Ok(())
@@ -107,9 +123,9 @@ impl Handler<SendSnapshotToPipe> for ZfsManager {
                     self.logger,
                     "Error sending snapshopt \"{}\": {}",
                     &msg.0.to_string_lossy(),
-                    e
+                    &e
                 );
-                Err(())
+                Err(format!("{}", e))
             }
         }
     }

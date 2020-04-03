@@ -7,8 +7,7 @@ pub mod incremental;
 #[derive(Debug, Clone)]
 pub enum Strategy {
     Full(full::Full),
-    Incremental(incremental::Incremental)
-
+    Incremental(incremental::Incremental),
 }
 
 impl Strategy {
@@ -23,7 +22,8 @@ impl Strategy {
 impl Strategy {
     pub fn get_zpool_and_filter(&self) -> (String, String) {
         match self {
-            Strategy::FullReplication(stg) => (stg.filter.clone(), stg.filter.clone()),
+            Strategy::Full(stg) => (stg.zpool.clone(), stg.filter.clone()),
+            Strategy::Incremental(stg) => (stg.zpool.clone(), stg.filter.clone()),
         }
     }
 }
@@ -38,11 +38,11 @@ impl FromObject<ObjectRef> for Strategy {
                     "full" => {
                         let s: full::Full = obj.try_into()?;
                         Ok(Strategy::Full(s))
-                    },
+                    }
                     "incremental" => {
                         let s: incremental::Incremental = obj.try_into()?;
                         Ok(Strategy::Incremental(s))
-                    },
+                    }
                     stg => Err(ObjectError::Other(format!(
                         "Strategy \"{}\" is not supported.",
                         stg
