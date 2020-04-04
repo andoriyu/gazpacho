@@ -100,8 +100,8 @@ impl Handler<SendSnapshotToPipe> for ZfsManager {
             debug!(
                 self.logger,
                 "Sending incremental snapshot from {} to {} to pipe",
-                &source.to_string_lossy(),
-                msg.0.to_string_lossy()
+                &source.display(),
+                msg.0.display()
             );
             self.z
                 .send_incremental(&msg.0, &source, msg.2.write, SendFlags::default())
@@ -109,20 +109,20 @@ impl Handler<SendSnapshotToPipe> for ZfsManager {
             debug!(
                 self.logger,
                 "Sending full snapshot for {} to pipe",
-                msg.0.to_string_lossy()
+                msg.0.display()
             );
             self.z.send_full(&msg.0, msg.2.write, SendFlags::default())
         };
         match result {
             Ok(()) => {
-                debug!(self.logger, "Sent {}", msg.0.to_string_lossy());
+                debug!(self.logger, "Sent {}", msg.0.display());
                 Ok(())
             }
             Err(e) => {
                 error!(
                     self.logger,
                     "Error sending snapshopt \"{}\": {}",
-                    &msg.0.to_string_lossy(),
+                    &msg.0.display(),
                     &e
                 );
                 Err(format!("{}", e))

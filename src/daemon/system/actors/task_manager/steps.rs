@@ -283,7 +283,7 @@ async fn process_dataset(
     task_name: String,
     source: Option<PathBuf>,
 ) -> Result<(), DatasetError> {
-    let logger = logger.new(o!("dataset" => dataset.to_string_lossy().to_string()));
+    let logger = logger.new(o!("dataset" => dataset.display().to_string()));
 
     let (pool, _) = task.strategy.get_zpool_and_filter();
     let msg = LogStep::started(
@@ -295,17 +295,9 @@ async fn process_dataset(
         source.clone(),
     );
     let row_id = step_log_progress(msg, dataset.clone(), &self_addr).await?;
-    debug!(
-        logger,
-        "Waiting for a permit work on {}",
-        dataset.to_string_lossy()
-    );
+    debug!(logger, "Waiting for a permit work on {}", dataset.display());
     let _permit = semaphore.acquire().await;
-    debug!(
-        logger,
-        "Got the permit the work on {}",
-        dataset.to_string_lossy()
-    );
+    debug!(logger, "Got the permit the work on {}", dataset.display());
     let snapshot = PathBuf::from(format!("{}@{}", dataset.to_string_lossy(), &snapshot_name));
     let pipe = Pipe::new().map_err(|e| {
         DatasetError::new(dataset.clone(), DatasetErrorKind::PipeError(e.to_string()))

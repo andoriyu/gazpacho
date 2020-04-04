@@ -35,11 +35,7 @@ impl Default for TaskManager {
             GlobalLogger::get().new(o!("module" => module_path!(), "actor" => "TaskRegistry"));
         let conf = STARTUP_CONFIGURATION.get().unwrap();
         let db_path = conf.daemon.database.as_path();
-        debug!(
-            logger,
-            "Trying to open database at '{}'",
-            db_path.to_string_lossy()
-        );
+        debug!(logger, "Trying to open database at '{}'", db_path.display());
         let mut db = match Connection::open(db_path) {
             Ok(conn) => conn,
             Err(e) => {
