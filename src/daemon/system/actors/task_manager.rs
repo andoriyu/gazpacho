@@ -201,9 +201,29 @@ impl Handler<LogStep> for TaskManager {
                 let state = format!("{:?}", CompletionState::Pending);
                 let dataset = dataset.to_string_lossy().to_string();
                 let source = source.map(|e| e.to_string_lossy().to_string());
-                let mut stmt = conn.prepare("INSERT INTO step_log (run_id, state, task, pool, dataset, snapshot, source, started_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")?;
+                let source_super = if source.is_some() {
+                    let mut stmt = conn.prepare(
+                        "SELECT source_super FROM step_log WHERE dataset = ?1 AND pool = ?2 AND task = ?3 and state = ?4 ORDER BY completed_at DESC",
+                    )?;
+                    let state = format!("{:?}", CompletionState::Completed);
+                    let last: Option<String> = stmt
+                        .query_row(&[&dataset, &pool, &task, &state], |row| row.get(0))
+                        .optional()?;
+                    last.or(source.clone())
+                } else {
+                    None
+                };
+                let mut stmt = conn.prepare("INSERT INTO step_log (run_id, state, task, pool, dataset, snapshot, source, source_super, started_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)")?;
                 let row_id = stmt.insert(params![
-                    run_id, state, task, pool, dataset, snapshot, source, now,
+                    run_id,
+                    state,
+                    task,
+                    pool,
+                    dataset,
+                    snapshot,
+                    source,
+                    source_super,
+                    now,
                 ])?;
                 Ok(row_id)
             }
@@ -272,7 +292,7 @@ impl Handler<GetSources> for TaskManager {
         let (pool, _) = msg.task.strategy.get_zpool_and_filter();
         let state = format!("{:?}", CompletionState::Completed);
         let mut last_snapshot_stms = conn.prepare(
-            "SELECT snapshot FROM step_log WHERE dataset = ?1 AND pool = ?2 AND state = ?3 ORDER BY completed_at DESC",
+            "SELECT snapshot FROM step_log WHERE dataset = ?1 AND pool = ?2 AND task ?3 AND state = ?4 ORDER BY completed_at DESC",
         ).map_err(|e| {
             error!(self.logger, "Failed to prepare last snapshot statement: {}", e);
             e
@@ -283,7 +303,7 @@ impl Handler<GetSources> for TaskManager {
         for dataset in msg.datasets {
             let dataset_as_str = dataset.to_string_lossy().to_string();
             let snapshot = last_snapshot_stms
-                .query_row(&[&dataset_as_str, &pool, &state], |row| {
+                .query_row(&[&dataset_as_str, &pool, &msg.task_name, &state], |row| {
                     let snapshot: String = row.get(0)?;
                     Ok(snapshot)
                 })

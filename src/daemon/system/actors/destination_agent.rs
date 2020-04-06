@@ -36,15 +36,19 @@ impl Handler<SaveFromPipe> for DestinationAgent {
     type Result = Result<(), String>;
 
     fn handle(&mut self, mut msg: SaveFromPipe, _ctx: &mut SyncContext<Self>) -> Self::Result {
-        debug!(self.logger, "Saving from pipe");
+        let logger = self
+            .logger
+            .new(o!("dataset" => msg.dataset.display().to_string(), "snapshot" => msg.snapshot.display().to_string()));
+        debug!(logger, "Saving from pipe");
         let mut ensured_dst =
             EnsuredDestination::ensure(&self.config, msg.dataset, &msg.compression, &self.logger)
                 .map_err(|e| format!("{}", e))?;
+        debug!(logger, "Destination ensured");
         if let Some(ref compression) = msg.compression {
             let mut encoder = Encoder::new(ensured_dst, compression.zstd.level).unwrap();
 
             if let Err(e) = encoder.multithread(compression.zstd.workers) {
-                warn!(self.logger, "Failed to set zstd multithreading: {}", e);
+                warn!(logger, "Failed to set zstd multithreading: {}", e);
             }
             let mut encoder = encoder.auto_finish();
 
@@ -52,7 +56,7 @@ impl Handler<SaveFromPipe> for DestinationAgent {
         } else {
             std::io::copy(&mut msg.rx, &mut ensured_dst).unwrap();
         }
-        debug!(self.logger, "Closing pipe");
+        debug!(logger, "Closing pipe");
         Ok(())
     }
 }

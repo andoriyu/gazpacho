@@ -15,12 +15,13 @@ pub fn migration() -> String {
         t.add_column("dataset", types::text().nullable(false));
         t.add_column("snapshot", types::text().nullable(false));
         t.add_column("source", types::text().nullable(true));
+        t.add_column("source_super", types::text().nullable(true));
         t.add_column("started_at", types::text().nullable(false));
         t.add_column("completed_at", types::text().nullable(true));
 
         t.add_index(
             "idx_step_log_last_snapshot",
-            types::index(vec!["dataset", "pool", "state", "completed_at"]),
+            types::index(vec!["dataset", "pool", "task", "state", "completed_at"]),
         )
     });
 

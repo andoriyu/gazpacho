@@ -140,10 +140,7 @@ pub(super) async fn process_task_step_wrapper(
     .await;
     let completion_state = match &result {
         Ok(_) => CompletionState::Completed,
-        Err(StepError::PartialErrors(e)) => {
-            error!(logger, "Executed with following errors: {:?}", e);
-            CompletionState::CompletedWithErrors
-        }
+        Err(StepError::PartialErrors(_)) => CompletionState::CompletedWithErrors,
         _ => CompletionState::Failed,
     };
     let log_msg = LogTask::Completed(run_id, completion_state);
