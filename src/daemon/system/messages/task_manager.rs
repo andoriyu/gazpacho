@@ -1,6 +1,7 @@
 use crate::daemon::config::{Configuration, Task};
-use crate::daemon::system::actors::task_manager::steps::StepError;
+use crate::daemon::system::actors::task_manager::StepError;
 use actix::Message;
+use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -24,12 +25,52 @@ pub enum CompletionState {
     CompletedWithErrors,
     Failed,
 }
-pub enum LogTask {
+
+/// A message representing log event on task level.
+pub struct TaskLogMessage {
+    /// Type of the event
+    pub event: TaskLog,
+    /// Time of the event
+    pub timestamp: DateTime<Utc>,
+}
+
+/// Various types of task level log events
+pub enum TaskLog {
+    /// Task started
     Started(String),
+    /// Task finished
     Completed(RowId, CompletionState),
 }
-impl Message for LogTask {
+
+impl Message for TaskLogMessage {
     type Result = Result<RowId, rusqlite::Error>;
+}
+
+impl TaskLogMessage {
+    /// Create a new message for task-started event.
+    pub fn started(name: String, timestamp: DateTime<Utc>) -> Self {
+        Self {
+            event: TaskLog::Started(name),
+            timestamp,
+        }
+    }
+    /// Create a new message for task-started event with an implicit timestamp.
+    pub fn started_now(name: String) -> Self {
+        Self::started(name, Utc::now())
+    }
+
+    /// Create a new message for task-finished event.
+    pub fn completed(row_id: RowId, state: CompletionState, timestamp: DateTime<Utc>) -> Self {
+        Self {
+            event: TaskLog::Completed(row_id, state),
+            timestamp,
+        }
+    }
+
+    /// Create a new message for task-finished event with an implicit timestamp.
+    pub fn completed_now(row_id: RowId, state: CompletionState) -> Self {
+        Self::completed(row_id, state, Utc::now())
+    }
 }
 
 pub enum LogStep {

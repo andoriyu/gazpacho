@@ -4,7 +4,7 @@ use crate::daemon::system::actors::task_manager::TaskManager;
 use crate::daemon::system::actors::zfs_manager::ZfsManager;
 use crate::daemon::system::messages::destination_manager::SaveFromPipe;
 use crate::daemon::system::messages::task_manager::{
-    CompletionState, GetSources, LogStep, LogTask, NeedsReset, RowId,
+    CompletionState, GetSources, LogStep, NeedsReset, RowId, TaskLogMessage,
 };
 use crate::daemon::system::messages::zfs_manager::{
     GetDatasetsForTask, MakeSnapshots, SendSnapshotToPipe,
@@ -128,7 +128,11 @@ pub(super) async fn process_task_step_wrapper(
 ) -> Result<(), StepError> {
     info!(logger, "Processing");
     let task = maybe_task.ok_or_else(|| StepError::TaskNotFound(task_name.clone()))?;
-    let run_id = task_log_progress(self_addr.clone(), LogTask::Started(task_name.clone())).await?;
+    let run_id = task_log_progress(
+        self_addr.clone(),
+        TaskLogMessage::started_now(task_name.clone()),
+    )
+    .await?;
     let result = process_task_step(
         task_name,
         task,
@@ -143,7 +147,7 @@ pub(super) async fn process_task_step_wrapper(
         Err(StepError::PartialErrors(_)) => CompletionState::CompletedWithErrors,
         _ => CompletionState::Failed,
     };
-    let log_msg = LogTask::Completed(run_id, completion_state);
+    let log_msg = TaskLogMessage::completed_now(run_id, completion_state);
     let _ = task_log_progress(self_addr, log_msg).await?;
     match &result {
         Ok(()) => info!(logger, "Finished"),
@@ -208,7 +212,10 @@ async fn process_task_step(
     }
 }
 
-async fn task_log_progress(self_addr: Addr<TaskManager>, msg: LogTask) -> Result<RowId, StepError> {
+async fn task_log_progress(
+    self_addr: Addr<TaskManager>,
+    msg: TaskLogMessage,
+) -> Result<RowId, StepError> {
     let res = self_addr.send(msg).await??;
     Ok(res)
 }

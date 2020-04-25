@@ -2,11 +2,12 @@ use crate::daemon::config::Task;
 use crate::daemon::logging::GlobalLogger;
 use crate::daemon::strategy::Strategy;
 use crate::daemon::system::actors::destination_manager::DestinationManager;
-use crate::daemon::system::actors::task_manager::steps::StepError;
+pub use crate::daemon::system::actors::task_manager::steps::StepError;
 use crate::daemon::system::actors::zfs_manager::ZfsManager;
 use crate::daemon::system::messages::destination_manager::NewDestinations;
 use crate::daemon::system::messages::task_manager::{
-    CompletionState, ExecuteTask, GetSources, LogStep, LogTask, NeedsReset, NewConfiguration, RowId,
+    CompletionState, ExecuteTask, GetSources, LogStep, NeedsReset, NewConfiguration, RowId,
+    TaskLog, TaskLogMessage,
 };
 use crate::daemon::system::shutdown;
 use crate::daemon::STARTUP_CONFIGURATION;
@@ -21,7 +22,8 @@ use slog::{debug, error, o, warn};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-pub mod steps;
+mod repository;
+mod steps;
 
 pub struct TaskManager {
     logger: Logger,
@@ -156,28 +158,17 @@ impl Handler<ExecuteTask> for TaskManager {
     }
 }
 
-impl Handler<LogTask> for TaskManager {
+impl Handler<TaskLogMessage> for TaskManager {
     type Result = Result<RowId, rusqlite::Error>;
 
-    fn handle(&mut self, msg: LogTask, _ctx: &mut Context<Self>) -> Self::Result {
-        let now = Utc::now().to_rfc3339();
-        let conn = self.db.as_ref().unwrap();
-        match msg {
-            LogTask::Started(task_name) => {
-                let state = format!("{:?}", CompletionState::Pending);
-                let mut stmt = conn.prepare(
-                    "INSERT INTO task_log (task, started_at, state) VALUES (?1, ?2, ?3)",
-                )?;
-                let row_id = stmt.insert(&[task_name, now, state])?;
-                Ok(row_id)
+    fn handle(&mut self, msg: TaskLogMessage, _ctx: &mut Context<Self>) -> Self::Result {
+        let conn = self.db.as_ref().expect("Failed to acquire connection");
+        match msg.event {
+            TaskLog::Started(task_name) => {
+                repository::insert_task_log(conn, task_name, msg.timestamp)
             }
-            LogTask::Completed(row_id, completion_state) => {
-                let state = format!("{:?}", completion_state);
-                let mut stmt = conn
-                    .prepare("UPDATE task_log SET completed_at = ?1, state = ?2  WHERE id = ?3")?;
-                stmt.execute(params![now, state, row_id])?;
-
-                Ok(row_id)
+            TaskLog::Completed(row_id, completion_state) => {
+                repository::update_task_log_state(conn, row_id, completion_state, msg.timestamp)
             }
         }
     }
