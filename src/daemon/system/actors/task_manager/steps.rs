@@ -4,7 +4,7 @@ use crate::daemon::system::actors::task_manager::TaskManager;
 use crate::daemon::system::actors::zfs_manager::ZfsManager;
 use crate::daemon::system::messages::destination_manager::SaveFromPipe;
 use crate::daemon::system::messages::task_manager::{
-    CompletionState, GetSources, LogStep, NeedsReset, RowId, TaskLogMessage,
+    CompletionState, GetSources, NeedsReset, RowId, StepLogMessage, TaskLogMessage,
 };
 use crate::daemon::system::messages::zfs_manager::{
     GetDatasetsForTask, MakeSnapshots, SendSnapshotToPipe,
@@ -290,7 +290,7 @@ async fn process_dataset(
     let logger = logger.new(o!("dataset" => dataset.display().to_string()));
 
     let (pool, _) = task.strategy.get_zpool_and_filter();
-    let msg = LogStep::started(
+    let msg = StepLogMessage::started_now(
         run_id,
         task_name.clone(),
         pool.clone(),
@@ -326,13 +326,13 @@ async fn process_dataset(
         Ok(_) => CompletionState::Completed,
         Err(_) => CompletionState::Failed,
     };
-    let msg = LogStep::completed(row_id, completion_state);
+    let msg = StepLogMessage::completed_now(row_id, completion_state);
     step_log_progress(msg, dataset.clone(), &self_addr).await?;
     result
 }
 
 async fn step_log_progress(
-    msg: LogStep,
+    msg: StepLogMessage,
     dataset: PathBuf,
     self_addr: &Addr<TaskManager>,
 ) -> Result<RowId, DatasetError> {

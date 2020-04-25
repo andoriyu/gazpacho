@@ -6,8 +6,8 @@ pub use crate::daemon::system::actors::task_manager::steps::StepError;
 use crate::daemon::system::actors::zfs_manager::ZfsManager;
 use crate::daemon::system::messages::destination_manager::NewDestinations;
 use crate::daemon::system::messages::task_manager::{
-    CompletionState, ExecuteTask, GetSources, LogStep, NeedsReset, NewConfiguration, RowId,
-    TaskLog, TaskLogMessage,
+    CompletionState, ExecuteTask, GetSources, NeedsReset, NewConfiguration, RowId, StepLog,
+    StepLogMessage, TaskLog, TaskLogMessage,
 };
 use crate::daemon::system::shutdown;
 use crate::daemon::STARTUP_CONFIGURATION;
@@ -16,7 +16,7 @@ use actix::{
     SystemService,
 };
 use chrono::{DateTime, Duration, Utc};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension};
 use slog::Logger;
 use slog::{debug, error, o, warn};
 use std::collections::HashMap;
@@ -174,14 +174,13 @@ impl Handler<TaskLogMessage> for TaskManager {
     }
 }
 
-impl Handler<LogStep> for TaskManager {
+impl Handler<StepLogMessage> for TaskManager {
     type Result = Result<RowId, rusqlite::Error>;
 
-    fn handle(&mut self, msg: LogStep, _ctx: &mut Context<Self>) -> Self::Result {
-        let now = Utc::now().to_rfc3339();
+    fn handle(&mut self, msg: StepLogMessage, _ctx: &mut Context<Self>) -> Self::Result {
         let conn = self.db.as_ref().unwrap();
-        match msg {
-            LogStep::Started {
+        match msg.event {
+            StepLog::Started {
                 run_id,
                 task,
                 pool,
@@ -189,42 +188,28 @@ impl Handler<LogStep> for TaskManager {
                 snapshot,
                 source,
             } => {
-                let state = format!("{:?}", CompletionState::Pending);
                 let dataset = dataset.to_string_lossy().to_string();
                 let source = source.map(|e| e.to_string_lossy().to_string());
                 let source_super = if source.is_some() {
-                    let mut stmt = conn.prepare(
-                        "SELECT source_super FROM step_log WHERE dataset = ?1 AND pool = ?2 AND task = ?3 and state = ?4 ORDER BY completed_at DESC",
-                    )?;
-                    let state = format!("{:?}", CompletionState::Completed);
-                    let last: Option<String> = stmt
-                        .query_row(&[&dataset, &pool, &task, &state], |row| row.get(0))
-                        .optional()?;
-                    last.or(source.clone())
+                    repository::query_super_source_for_step(conn, &dataset, &pool, &task)?
+                        .or_else(|| source.clone())
                 } else {
                     None
                 };
-                let mut stmt = conn.prepare("INSERT INTO step_log (run_id, state, task, pool, dataset, snapshot, source, source_super, started_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)")?;
-                let row_id = stmt.insert(params![
+                repository::insert_step_log(
+                    conn,
                     run_id,
-                    state,
-                    task,
-                    pool,
-                    dataset,
-                    snapshot,
-                    source,
-                    source_super,
-                    now,
-                ])?;
-                Ok(row_id)
+                    &task,
+                    &pool,
+                    &dataset,
+                    &snapshot,
+                    &source,
+                    &source_super,
+                    msg.timestamp,
+                )
             }
-            LogStep::Completed { row_id, state } => {
-                let state = format!("{:?}", state);
-                let mut stmt = conn
-                    .prepare("UPDATE step_log SET state = ?1, completed_at = ?2 WHERE id = ?3")?;
-                stmt.execute(params![state, now, row_id])?;
-
-                Ok(row_id)
+            StepLog::Completed { row_id, state } => {
+                repository::update_step_log(conn, row_id, state, msg.timestamp)
             }
         }
     }

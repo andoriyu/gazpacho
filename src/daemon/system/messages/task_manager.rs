@@ -73,7 +73,12 @@ impl TaskLogMessage {
     }
 }
 
-pub enum LogStep {
+pub struct StepLogMessage {
+    pub event: StepLog,
+    pub timestamp: DateTime<Utc>,
+}
+
+pub enum StepLog {
     Started {
         run_id: RowId,
         task: String,
@@ -88,7 +93,7 @@ pub enum LogStep {
     },
 }
 
-impl LogStep {
+impl StepLogMessage {
     pub fn started(
         run_id: RowId,
         task: String,
@@ -96,22 +101,44 @@ impl LogStep {
         dataset: PathBuf,
         snapshot: String,
         source: Option<PathBuf>,
+        timestamp: DateTime<Utc>,
     ) -> Self {
-        LogStep::Started {
-            run_id,
-            task,
-            pool,
-            dataset,
-            snapshot,
-            source,
+        Self {
+            timestamp,
+            event: StepLog::Started {
+                run_id,
+                task,
+                pool,
+                dataset,
+                snapshot,
+                source,
+            },
         }
     }
-    pub fn completed(row_id: RowId, state: CompletionState) -> Self {
-        LogStep::Completed { row_id, state }
+    pub fn started_now(
+        run_id: RowId,
+        task: String,
+        pool: String,
+        dataset: PathBuf,
+        snapshot: String,
+        source: Option<PathBuf>,
+    ) -> Self {
+        Self::started(run_id, task, pool, dataset, snapshot, source, Utc::now())
+    }
+
+    pub fn completed(row_id: RowId, state: CompletionState, timestamp: DateTime<Utc>) -> Self {
+        Self {
+            timestamp,
+            event: StepLog::Completed { row_id, state },
+        }
+    }
+
+    pub fn completed_now(row_id: RowId, state: CompletionState) -> Self {
+        Self::completed(row_id, state, Utc::now())
     }
 }
 
-impl Message for LogStep {
+impl Message for StepLogMessage {
     type Result = Result<RowId, rusqlite::Error>;
 }
 
