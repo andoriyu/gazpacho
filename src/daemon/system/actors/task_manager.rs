@@ -15,7 +15,7 @@ use actix::{
     Actor, Addr, AsyncContext, Context, Handler, ResponseFuture, Supervised, SyncArbiter,
     SystemService,
 };
-use chrono::{DateTime, Duration, Utc};
+use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension};
 use slog::Logger;
 use slog::{debug, error, o, warn};
@@ -223,35 +223,8 @@ impl Handler<NeedsReset> for TaskManager {
         match msg.task.strategy {
             Strategy::Full(_) => Ok(false),
             Strategy::Incremental(stg) => {
-                let mut needs_reset = true;
-                let current = {
-                    let mut stmt =
-                        conn.prepare("SELECT count, reset_at FROM reset_count WHERE task = ?1")?;
-
-                    stmt.query_row(&[msg.task_name], |row| {
-                        let count: i64 = row.get(0)?;
-                        let date: String = row.get(1)?;
-                        Ok((count, date))
-                    })
-                    .optional()?
-                };
-                if let Some((count, last_date)) = current {
-                    if let Some(max_times_since_last_reset) = stg.runs_before_reset {
-                        if count < max_times_since_last_reset {
-                            needs_reset = false;
-                        }
-                    }
-                    if let Some(max_days_since_last_reset) = stg.days_before_reset {
-                        let date: DateTime<Utc> =
-                            DateTime::parse_from_rfc3339(&last_date).unwrap().into();
-                        let today = Utc::now();
-                        let time_since = today - date;
-                        let max_time_since = Duration::days(max_days_since_last_reset);
-                        if time_since < max_time_since {
-                            needs_reset = false
-                        }
-                    }
-                }
+                let current = repository::get_count_and_date_of_last_reset(&conn, &msg.task_name)?;
+                let needs_reset = stg.check_if_needs_reset(current, Utc::now());
                 Ok(needs_reset)
             }
         }

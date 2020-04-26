@@ -89,3 +89,20 @@ pub fn update_step_log(
 
     Ok(row_id)
 }
+
+pub fn get_count_and_date_of_last_reset(
+    conn: &Connection,
+    task_name: &str,
+) -> Result<Option<(i64, DateTime<Utc>)>, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT count, reset_at FROM reset_count WHERE task = ?1")?;
+
+    stmt.query_row(&[task_name], |row| {
+        let count: i64 = row.get(0)?;
+        let date: String = row.get(1)?;
+        let date = DateTime::parse_from_rfc3339(&date)
+            .expect("Failed to parser timestamp")
+            .into();
+        Ok((count, date))
+    })
+    .optional()
+}

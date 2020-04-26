@@ -17,7 +17,7 @@ slog-syslog = "0.12"
 slog-term = "2"
 slog-stdlog = "4"
 ssh2 = "0.8.0"
-uclicious = "0.1.2"
+uclicious = "0.1.5"
 zstd = { version = "0.5" }
 zstd-sys = { version = "1.4", features = ["zstdmt", "zstdmt"], path = "/home/andoriyu/dev/github.com/andoriyu/zstd-rs/zstd-safe/zstd-sys" }
 once_cell = "1.3"
