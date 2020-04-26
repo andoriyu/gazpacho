@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="DataSourceManagerImpl" format="xml" multifile-model="true">
-    <data-source source="LOCAL" name="SQLite - gazpacho.sqlite3" uuid="37eca5d4-f04b-4fcc-99b9-fc28ef758dbb">
+    <data-source source="LOCAL" name="gazpacho.sqlite3" read-only="true" single-connection="true" uuid="7315d801-d8d5-4499-b5ef-33f70166cd94">
       <driver-ref>sqlite.xerial</driver-ref>
       <synchronize>true</synchronize>
       <jdbc-driver>org.sqlite.JDBC</jdbc-driver>
       <jdbc-url>jdbc:sqlite:$USER_HOME$/gazpacho.sqlite3</jdbc-url>
+      <auto-close enable="true" />
     </data-source>
   </component>
 </project>
