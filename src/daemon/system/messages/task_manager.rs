@@ -5,6 +5,8 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+pub type StepLogMessage = TimestampedMessage<StepLog>;
+pub type TaskLogMessage = TimestampedMessage<TaskLog>;
 pub type RowId = i64;
 #[derive(Debug)]
 pub struct NewConfiguration(pub Configuration);
@@ -26,12 +28,9 @@ pub enum CompletionState {
     Failed,
 }
 
-/// A message representing log event on task level.
-pub struct TaskLogMessage {
-    /// Type of the event
-    pub event: TaskLog,
-    /// Time of the event
+pub struct TimestampedMessage<T> {
     pub timestamp: DateTime<Utc>,
+    pub payload: T,
 }
 
 /// Various types of task level log events
@@ -42,15 +41,15 @@ pub enum TaskLog {
     Completed(RowId, CompletionState),
 }
 
-impl Message for TaskLogMessage {
+impl Message for TimestampedMessage<TaskLog> {
     type Result = Result<RowId, rusqlite::Error>;
 }
 
-impl TaskLogMessage {
+impl TimestampedMessage<TaskLog> {
     /// Create a new message for task-started event.
     pub fn started(name: String, timestamp: DateTime<Utc>) -> Self {
         Self {
-            event: TaskLog::Started(name),
+            payload: TaskLog::Started(name),
             timestamp,
         }
     }
@@ -62,7 +61,7 @@ impl TaskLogMessage {
     /// Create a new message for task-finished event.
     pub fn completed(row_id: RowId, state: CompletionState, timestamp: DateTime<Utc>) -> Self {
         Self {
-            event: TaskLog::Completed(row_id, state),
+            payload: TaskLog::Completed(row_id, state),
             timestamp,
         }
     }
@@ -71,11 +70,6 @@ impl TaskLogMessage {
     pub fn completed_now(row_id: RowId, state: CompletionState) -> Self {
         Self::completed(row_id, state, Utc::now())
     }
-}
-
-pub struct StepLogMessage {
-    pub event: StepLog,
-    pub timestamp: DateTime<Utc>,
 }
 
 pub enum StepLog {
@@ -93,7 +87,7 @@ pub enum StepLog {
     },
 }
 
-impl StepLogMessage {
+impl TimestampedMessage<StepLog> {
     pub fn started(
         run_id: RowId,
         task: String,
@@ -105,7 +99,7 @@ impl StepLogMessage {
     ) -> Self {
         Self {
             timestamp,
-            event: StepLog::Started {
+            payload: StepLog::Started {
                 run_id,
                 task,
                 pool,
@@ -129,7 +123,7 @@ impl StepLogMessage {
     pub fn completed(row_id: RowId, state: CompletionState, timestamp: DateTime<Utc>) -> Self {
         Self {
             timestamp,
-            event: StepLog::Completed { row_id, state },
+            payload: StepLog::Completed { row_id, state },
         }
     }
 
@@ -138,7 +132,7 @@ impl StepLogMessage {
     }
 }
 
-impl Message for StepLogMessage {
+impl Message for TimestampedMessage<StepLog> {
     type Result = Result<RowId, rusqlite::Error>;
 }
 

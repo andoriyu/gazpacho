@@ -163,7 +163,7 @@ impl Handler<TaskLogMessage> for TaskManager {
 
     fn handle(&mut self, msg: TaskLogMessage, _ctx: &mut Context<Self>) -> Self::Result {
         let conn = self.db.as_ref().expect("Failed to acquire connection");
-        match msg.event {
+        match msg.payload {
             TaskLog::Started(task_name) => {
                 repository::insert_task_log(conn, task_name, msg.timestamp)
             }
@@ -179,7 +179,7 @@ impl Handler<StepLogMessage> for TaskManager {
 
     fn handle(&mut self, msg: StepLogMessage, _ctx: &mut Context<Self>) -> Self::Result {
         let conn = self.db.as_ref().unwrap();
-        match msg.event {
+        match msg.payload {
             StepLog::Started {
                 run_id,
                 task,
