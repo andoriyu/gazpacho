@@ -8,10 +8,7 @@ pub fn migration() -> String {
         t.add_column("count", types::integer().nullable(false));
         t.add_column("reset_at", types::text().nullable(false));
 
-        t.add_index(
-            "idx_reset_count_task",
-            types::index(vec!["task"])
-        );
+        t.add_index("idx_reset_count_task", types::index(vec!["task"]));
     });
 
     m.make::<Sqlite>()

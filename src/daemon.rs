@@ -49,7 +49,7 @@ pub fn start_daemon() {
                 incremental {
                     zpool = "z",
                     filter = "z\/usr\/ports$",
-                    days_before_reset = 3,
+                    duration_before_reset = 7d,
                 }
             }
             compression {

@@ -3,11 +3,14 @@ use crate::daemon::system::actors::task_manager::StepError;
 use actix::Message;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
 pub type StepLogMessage = TimestampedMessage<StepLog>;
 pub type TaskLogMessage = TimestampedMessage<TaskLog>;
+pub type UpdateResetCountsMessage = TimestampedMessage<UpdateResetCounts>;
 pub type RowId = i64;
+
 #[derive(Debug)]
 pub struct NewConfiguration(pub Configuration);
 impl Message for NewConfiguration {
@@ -26,6 +29,12 @@ pub enum CompletionState {
     Completed,
     CompletedWithErrors,
     Failed,
+}
+
+impl Display for CompletionState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 pub struct TimestampedMessage<T> {
@@ -151,16 +160,6 @@ impl Message for NeedsReset {
     type Result = Result<bool, rusqlite::Error>;
 }
 
-pub struct ResetTimesSinceReset(String);
-impl Message for ResetTimesSinceReset {
-    type Result = Result<(), rusqlite::Error>;
-}
-
-pub struct IncrementTimesSinceReset(String);
-impl Message for IncrementTimesSinceReset {
-    type Result = Result<(), rusqlite::Error>;
-}
-
 pub struct GetSources {
     pub task_name: String,
     pub task: Task,
@@ -179,4 +178,22 @@ impl GetSources {
 
 impl Message for GetSources {
     type Result = Result<HashMap<PathBuf, PathBuf>, rusqlite::Error>;
+}
+
+pub struct UpdateResetCounts {
+    pub task: String,
+    pub reset: bool,
+}
+
+impl Message for TimestampedMessage<UpdateResetCounts> {
+    type Result = Result<(), rusqlite::Error>;
+}
+
+impl TimestampedMessage<UpdateResetCounts> {
+    pub fn new(task: String, reset: bool, timestamp: DateTime<Utc>) -> Self {
+        Self {
+            timestamp,
+            payload: UpdateResetCounts { task, reset },
+        }
+    }
 }

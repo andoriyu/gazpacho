@@ -5,6 +5,7 @@ use crate::daemon::system::actors::zfs_manager::ZfsManager;
 use crate::daemon::system::messages::destination_manager::SaveFromPipe;
 use crate::daemon::system::messages::task_manager::{
     CompletionState, GetSources, NeedsReset, RowId, StepLogMessage, TaskLogMessage,
+    UpdateResetCountsMessage,
 };
 use crate::daemon::system::messages::zfs_manager::{
     GetDatasetsForTask, MakeSnapshots, SendSnapshotToPipe,
@@ -128,11 +129,9 @@ pub(super) async fn process_task_step_wrapper(
 ) -> Result<(), StepError> {
     info!(logger, "Processing");
     let task = maybe_task.ok_or_else(|| StepError::TaskNotFound(task_name.clone()))?;
-    let run_id = task_log_progress(
-        self_addr.clone(),
-        TaskLogMessage::started_now(task_name.clone()),
-    )
-    .await?;
+    let run_id =
+        task_log_progress(&self_addr, TaskLogMessage::started_now(task_name.clone())).await?;
+    debug!(logger, "Run id: {}", run_id);
     let result = process_task_step(
         task_name,
         task,
@@ -142,13 +141,6 @@ pub(super) async fn process_task_step_wrapper(
         run_id,
     )
     .await;
-    let completion_state = match &result {
-        Ok(_) => CompletionState::Completed,
-        Err(StepError::PartialErrors(_)) => CompletionState::CompletedWithErrors,
-        _ => CompletionState::Failed,
-    };
-    let log_msg = TaskLogMessage::completed_now(run_id, completion_state);
-    let _ = task_log_progress(self_addr, log_msg).await?;
     match &result {
         Ok(()) => info!(logger, "Finished"),
         Err(e) => error!(logger, "Finished with errors: {}", e),
@@ -165,10 +157,18 @@ async fn process_task_step(
     run_id: RowId,
 ) -> Result<(), StepError> {
     let datasets = get_datasets_for_task(&task, &zfs_addr, &logger).await?;
+    debug!(logger, "Acquired {} datasets to work with", datasets.len());
     let mut errors = Vec::new();
     let snapshot_name = get_snapshot_name();
+    debug!(logger, "Snapshot name is {}", &snapshot_name);
     let _ = make_snapshots(datasets.clone(), snapshot_name.clone(), &zfs_addr).await?;
+    debug!(logger, "Made snapshots for the task");
     let needs_reset = check_needs_reset(task_name.clone(), task.clone(), &self_addr).await?;
+    if needs_reset {
+        debug!(logger, "Running in full-send mode");
+    } else {
+        debug!(logger, "Running in incremental mode");
+    }
     let sources = get_sources(
         task_name.clone(),
         task.clone(),
@@ -202,18 +202,34 @@ async fn process_task_step(
 
     while let Some(result) = steps.next().await {
         if let Err(e) = result {
+            error!(logger, "Error processing dataset: {}", &e);
             errors.push(e);
         }
     }
-    if errors.is_empty() {
+    let result = if errors.is_empty() {
         Ok(())
     } else {
         Err(StepError::PartialErrors(errors))
-    }
+    };
+
+    let completion_state = match &result {
+        Ok(_) => CompletionState::Completed,
+        Err(StepError::PartialErrors(errors)) if errors.len() < datasets.len() => {
+            CompletionState::CompletedWithErrors
+        }
+        _ => CompletionState::Failed,
+    };
+    let completed_at = Utc::now();
+    let log_msg = TaskLogMessage::completed(run_id, completion_state, completed_at.clone());
+    let _ = task_log_progress(&self_addr, log_msg).await?;
+
+    let reset_msg = UpdateResetCountsMessage::new(task_name.clone(), needs_reset, completed_at);
+    self_addr.send(reset_msg).await??;
+    result
 }
 
 async fn task_log_progress(
-    self_addr: Addr<TaskManager>,
+    self_addr: &Addr<TaskManager>,
     msg: TaskLogMessage,
 ) -> Result<RowId, StepError> {
     let res = self_addr.send(msg).await??;
@@ -320,15 +336,22 @@ async fn process_dataset(
     let zfs_req = SendSnapshotToPipe(snapshot.clone(), source.clone(), pipe);
     let zfs_res = zfs_addr.send(zfs_req);
     let result = futures::try_join!(dst_res, zfs_res)
-        .map_err(|e| DatasetError::other(dataset.clone(), e.to_string()))
-        .map(|_| ());
-    let completion_state = match result {
-        Ok(_) => CompletionState::Completed,
-        Err(_) => CompletionState::Failed,
+        .map_err(|e| DatasetError::new(dataset.clone(), DatasetErrorKind::MailboxError(e)))
+        .and_then(|res| match res {
+            (Ok(_), Ok(_)) => Ok(()),
+            (Err(e), _) => Err(DatasetError::other(dataset.clone(), e)),
+            (_, Err(e)) => Err(DatasetError::other(dataset.clone(), e)),
+        });
+    let completion_state = if result.is_ok() {
+        CompletionState::Completed
+    } else {
+        CompletionState::Failed
     };
     let msg = StepLogMessage::completed_now(row_id, completion_state);
     step_log_progress(msg, dataset.clone(), &self_addr).await?;
     result
+        .map(|_| ())
+        .map_err(|e| DatasetError::other(dataset.clone(), e.to_string()))
 }
 
 async fn step_log_progress(
@@ -345,6 +368,8 @@ async fn step_log_progress(
 }
 
 fn get_snapshot_name() -> String {
-    let date = Utc::today().format("%Y%m%d");
-    format!("gazpacho-{}", date)
+    let now = Utc::now();
+    let date = now.format("%Y%m%d");
+    let timestamp = now.timestamp();
+    format!("gazpacho-{}-{}", date, timestamp)
 }

@@ -121,7 +121,7 @@ impl Handler<SendSnapshotToPipe> for ZfsManager {
             Err(e) => {
                 error!(
                     self.logger,
-                    "Error sending snapshopt \"{}\": {}",
+                    "Error sending snapshot \"{}\": {}",
                     &msg.0.display(),
                     &e
                 );

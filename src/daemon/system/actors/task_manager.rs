@@ -6,8 +6,8 @@ pub use crate::daemon::system::actors::task_manager::steps::StepError;
 use crate::daemon::system::actors::zfs_manager::ZfsManager;
 use crate::daemon::system::messages::destination_manager::NewDestinations;
 use crate::daemon::system::messages::task_manager::{
-    CompletionState, ExecuteTask, GetSources, NeedsReset, NewConfiguration, RowId, StepLog,
-    StepLogMessage, TaskLog, TaskLogMessage,
+    ExecuteTask, GetSources, NeedsReset, NewConfiguration, RowId, StepLog, StepLogMessage, TaskLog,
+    TaskLogMessage, UpdateResetCountsMessage,
 };
 use crate::daemon::system::shutdown;
 use crate::daemon::STARTUP_CONFIGURATION;
@@ -16,7 +16,7 @@ use actix::{
     SystemService,
 };
 use chrono::Utc;
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::Connection;
 use slog::Logger;
 use slog::{debug, error, o, warn};
 use std::collections::HashMap;
@@ -43,6 +43,7 @@ impl Default for TaskManager {
             Err(e) => {
                 error!(logger, "Failed to open database: {}", e);
                 shutdown();
+                // Service is going to shutdown, so it doesn't matter
                 Connection::open_in_memory().unwrap()
             }
         };
@@ -53,7 +54,10 @@ impl Default for TaskManager {
                 shutdown();
             }
         };
-
+        if let Err(e) = repository::check_if_readonly(&db) {
+            error!(logger, "Possibly corrupted database: {}", e);
+            shutdown();
+        }
         let zfs_manager = SyncArbiter::start(conf.parallelism as usize, ZfsManager::default);
         TaskManager {
             logger,
@@ -153,7 +157,15 @@ impl Handler<ExecuteTask> for TaskManager {
         let logger = self.logger.new(o!("task" => msg.0.clone()));
         let self_addr = ctx.address();
         Box::pin(async move {
-            steps::process_task_step_wrapper(msg.0, maybe_task, logger, zfs_addr, self_addr).await
+            let ret = steps::process_task_step_wrapper(
+                msg.0,
+                maybe_task,
+                logger.clone(),
+                zfs_addr,
+                self_addr,
+            )
+            .await;
+            ret
         })
     }
 }
@@ -165,7 +177,7 @@ impl Handler<TaskLogMessage> for TaskManager {
         let conn = self.db.as_ref().expect("Failed to acquire connection");
         match msg.payload {
             TaskLog::Started(task_name) => {
-                repository::insert_task_log(conn, task_name, msg.timestamp)
+                repository::insert_task_log(conn, &task_name, msg.timestamp)
             }
             TaskLog::Completed(row_id, completion_state) => {
                 repository::update_task_log_state(conn, row_id, completion_state, msg.timestamp)
@@ -221,9 +233,10 @@ impl Handler<NeedsReset> for TaskManager {
     fn handle(&mut self, msg: NeedsReset, _ctx: &mut Context<Self>) -> Self::Result {
         let conn = self.db.as_ref().unwrap();
         match msg.task.strategy {
-            Strategy::Full(_) => Ok(false),
+            Strategy::Full(_) => Ok(true),
             Strategy::Incremental(stg) => {
                 let current = repository::get_count_and_date_of_last_reset(&conn, &msg.task_name)?;
+                debug!(self.logger, "Reset information: {:?}", current; "task" => msg.task_name.clone());
                 let needs_reset = stg.check_if_needs_reset(current, Utc::now());
                 Ok(needs_reset)
             }
@@ -235,33 +248,22 @@ impl Handler<GetSources> for TaskManager {
     type Result = Result<HashMap<PathBuf, PathBuf>, rusqlite::Error>;
 
     fn handle(&mut self, msg: GetSources, _ctx: &mut Context<Self>) -> Self::Result {
-        let mut ret = HashMap::with_capacity(msg.datasets.len());
         let conn = self.db.as_ref().unwrap();
-
         let (pool, _) = msg.task.strategy.get_zpool_and_filter();
-        let state = format!("{:?}", CompletionState::Completed);
-        let mut last_snapshot_stms = conn.prepare(
-            "SELECT snapshot FROM step_log WHERE dataset = ?1 AND pool = ?2 AND task ?3 AND state = ?4 ORDER BY completed_at DESC",
-        ).map_err(|e| {
-            error!(self.logger, "Failed to prepare last snapshot statement: {}", e);
-            e
-        })?;
+        repository::get_sources(&conn, &pool, &msg.datasets, &msg.task_name)
+    }
+}
 
-        dbg!("hit");
+impl Handler<UpdateResetCountsMessage> for TaskManager {
+    type Result = Result<(), rusqlite::Error>;
 
-        for dataset in msg.datasets {
-            let dataset_as_str = dataset.to_string_lossy().to_string();
-            let snapshot = last_snapshot_stms
-                .query_row(&[&dataset_as_str, &pool, &msg.task_name, &state], |row| {
-                    let snapshot: String = row.get(0)?;
-                    Ok(snapshot)
-                })
-                .optional()?;
-            if let Some(snap) = snapshot {
-                let snapshot_full = format!("{}@{}", &dataset_as_str, snap).into();
-                ret.insert(dataset.clone(), snapshot_full);
-            }
-        }
-        Ok(ret)
+    fn handle(&mut self, msg: UpdateResetCountsMessage, _ctx: &mut Context<Self>) -> Self::Result {
+        let conn = self.db.as_ref().unwrap();
+        let reset_at = if msg.payload.reset {
+            Some(msg.timestamp.clone())
+        } else {
+            None
+        };
+        repository::update_reset_counts(conn, &msg.payload.task, reset_at)
     }
 }
