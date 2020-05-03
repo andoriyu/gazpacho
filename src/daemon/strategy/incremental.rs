@@ -1,3 +1,4 @@
+use crate::utils::time_to_chrono;
 use chrono::{DateTime, Duration, Utc};
 use uclicious::traits::TryInto;
 use uclicious::{ObjectError, ObjectRef, Uclicious};
@@ -11,13 +12,6 @@ pub struct Incremental {
     pub runs_before_reset: Option<i64>,
     #[ucl(default, map = "time_to_chrono")]
     pub duration_before_reset: Option<Duration>,
-}
-
-fn time_to_chrono(src: ObjectRef) -> Result<Option<Duration>, ObjectError> {
-    let std_time: std::time::Duration = src.try_into()?;
-    Duration::from_std(std_time)
-        .map(Option::from)
-        .map_err(|e| ObjectError::other(e))
 }
 
 impl Incremental {

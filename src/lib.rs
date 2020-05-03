@@ -1,5 +1,6 @@
 pub mod daemon;
 pub mod db;
+pub mod utils;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const SERVICE: &str = "gazpacho";
 

@@ -40,9 +40,14 @@ impl Handler<SaveFromPipe> for DestinationAgent {
             .logger
             .new(o!("dataset" => msg.dataset.display().to_string(), "snapshot" => msg.snapshot.display().to_string()));
         debug!(logger, "Saving from pipe");
-        let mut ensured_dst =
-            EnsuredDestination::ensure(&self.config, msg.dataset, &msg.compression, &self.logger)
-                .map_err(|e| format!("{}", e))?;
+        let mut ensured_dst = EnsuredDestination::ensure(
+            &logger,
+            &self.config,
+            msg.dataset,
+            &msg.compression,
+            &self.logger,
+        )
+        .map_err(|e| format!("{}", e))?;
         debug!(logger, "Destination ensured");
         if let Some(ref compression) = msg.compression {
             let mut encoder = Encoder::new(ensured_dst, compression.zstd.level).unwrap();

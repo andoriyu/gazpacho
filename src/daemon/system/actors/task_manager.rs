@@ -73,7 +73,7 @@ impl Actor for TaskManager {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         debug!(self.logger, "Actor started");
-        ctx.address().do_send(NewConfiguration(
+        ctx.notify(NewConfiguration(
             STARTUP_CONFIGURATION.get().cloned().unwrap(),
         ))
     }

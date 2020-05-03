@@ -1,5 +1,6 @@
 use crate::daemon::destination::Destination;
 use crate::daemon::strategy::Strategy;
+use chrono::Duration;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use uclicious::Uclicious;
@@ -72,6 +73,10 @@ pub struct LogSysLog {
 #[ucl(skip_builder)]
 pub struct Daemon {
     pub database: PathBuf,
+    #[ucl(default, map = "crate::utils::time_to_chrono")]
+    pub cleanup_interval: Option<Duration>,
+    #[ucl(default = "false")]
+    pub cleanup_on_startup: bool,
 }
 
 #[derive(Uclicious, Clone, Debug)]

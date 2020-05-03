@@ -1,5 +1,6 @@
+use chrono::Duration;
 use uclicious::traits::TryInto;
-use uclicious::{FromObject, ObjectError, ObjectRef};
+use uclicious::{FromObject, ObjectError, ObjectRef, Uclicious};
 
 pub mod full;
 pub mod incremental;
@@ -56,4 +57,25 @@ impl FromObject<ObjectRef> for Strategy {
             ))
         })
     }
+}
+
+#[derive(Uclicious, Clone, Debug, Hash)]
+#[ucl(skip_builder)]
+pub struct Cleanup {
+    #[ucl(
+        default,
+        path = "destination.age",
+        map = "crate::utils::time_to_chrono"
+    )]
+    destination_age: Option<Duration>,
+    #[ucl(default, path = "destination.count")]
+    destination_count: Option<u64>,
+    #[ucl(default, path = "local.age", map = "crate::utils::time_to_chrono")]
+    local_age: Option<Duration>,
+    #[ucl(default, path = "local.count")]
+    local_count: Option<u64>,
+    #[ucl(default = "false")]
+    replace_with_bookmark: bool,
+    #[ucl(default = "false")]
+    run_every_time: bool,
 }

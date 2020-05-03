@@ -1,7 +1,7 @@
 use crate::daemon::config::Compression;
 use crate::daemon::destination::{Destination, DestinationLocal, DestinationSsh};
 use chrono::Utc;
-use slog::Logger;
+use slog::{debug, Logger};
 use ssh2::{File as SftpFile, Session, Sftp};
 use std::fmt::{Display, Formatter};
 use std::fs::{File as LocalFile, File};
@@ -48,6 +48,7 @@ pub enum EnsuredDestination {
 
 impl EnsuredDestination {
     pub fn ensure(
+        logger: &Logger,
         dst: &Destination,
         dataset: PathBuf,
         compression: &Option<Compression>,
@@ -80,14 +81,17 @@ impl EnsuredDestination {
         };
         match (&dst.ssh, &dst.local) {
             (None, None) => Err(EnsuredError::MissingConfiguration),
-            (Some(dst_ssh), None) => Self::ensure_sftp_file(dst_ssh, date_folder, dst_file_name),
+            (Some(dst_ssh), None) => {
+                Self::ensure_sftp_file(logger, dst_ssh, date_folder, dst_file_name)
+            }
             (None, Some(dst_local)) => {
-                Self::ensure_local_file(dst_local, date_folder, dst_file_name)
+                Self::ensure_local_file(logger, dst_local, date_folder, dst_file_name)
             }
             (Some(_), Some(_)) => Err(EnsuredError::DuplicateConfiguration),
         }
     }
     fn ensure_local_file(
+        _logger: &Logger,
         dst: &DestinationLocal,
         date_folder: PathBuf,
         dst_file: PathBuf,
@@ -108,6 +112,7 @@ impl EnsuredDestination {
     }
 
     fn ensure_sftp_file(
+        logger: &Logger,
         dst: &DestinationSsh,
         date_folder: PathBuf,
         dst_file: PathBuf,
@@ -122,16 +127,23 @@ impl EnsuredDestination {
             path.push(dst_file);
             path
         };
+        debug!(
+            logger,
+            "Full path to destination: {}",
+            full_dst_file_path.display()
+        );
 
-        let mut sess = Session::new().unwrap();
-        let tcp = TcpStream::connect(&dst.host).unwrap();
+        let mut sess = Session::new()?;
+        let tcp = TcpStream::connect(&dst.host)?;
         sess.set_tcp_stream(tcp);
         sess.handshake()?;
         sess.userauth_pubkey_file(&dst.username, None, &dst.identity_file, None)?;
+        debug!(logger, "Established ssh session with remote server");
 
         let mut channel = sess.channel_session()?;
         let cmd = format!("mkdir -p {}", dst_folder.to_string_lossy());
         channel.exec(&cmd)?;
+        debug!(logger, "Created destination folder");
         let sftp = sess.sftp().unwrap();
         let file = sftp.create(&full_dst_file_path)?;
         Ok(EnsuredDestination::SftpFile(file, sess, sftp))

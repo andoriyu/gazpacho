@@ -8,6 +8,7 @@ pub mod strategy;
 pub mod system;
 
 use crate::daemon::system::bootstrap_system;
+use crate::daemon::system::messages::maid::Cleanup;
 use config::Configuration;
 use logging::GlobalLogger as Log;
 use once_cell::sync::OnceCell;
@@ -19,7 +20,9 @@ pub static STARTUP_CONFIGURATION: OnceCell<Configuration> = OnceCell::new();
 pub fn start_daemon() {
     let input = r#"
         daemon {
-            database = "/usr/home/andoriyu/gazpacho.sqlite3"
+            database = "/usr/home/andoriyu/gazpacho.sqlite3",
+            cleanup_interval = 1d,
+            cleanup_on_startup = true,
         }
         logging {
             terminal {
@@ -64,7 +67,7 @@ pub fn start_daemon() {
     builder
         .add_chunk_full(input, Priority::default(), DEFAULT_DUPLICATE_STRATEGY)
         .unwrap();
-    let conf = builder.build().unwrap();
+    let conf: Configuration = builder.build().unwrap();
 
     STARTUP_CONFIGURATION
         .set(conf.clone())
@@ -84,6 +87,10 @@ pub fn start_daemon() {
     let (tx, rx) = mpsc::channel();
 
     let system_handle = bootstrap_system(tx);
-    let _lifecycle = rx.recv().unwrap();
+    let (_lifecycle, maid) = rx.recv().unwrap();
+
+    if conf.daemon.cleanup_on_startup {
+        maid.do_send(Cleanup::default());
+    }
     system_handle.join().unwrap();
 }
