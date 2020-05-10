@@ -5,7 +5,6 @@ use crate::daemon::system::messages::destination_manager::SaveFromPipe;
 use actix::{Actor, Handler, Supervised, SyncContext};
 use slog::{debug, o, warn, Logger};
 use zstd::Encoder;
-
 pub struct DestinationAgent {
     logger: Logger,
     config: Destination,
@@ -46,6 +45,7 @@ impl Handler<SaveFromPipe> for DestinationAgent {
             msg.dataset,
             &msg.compression,
             &self.logger,
+            msg.date,
         )
         .map_err(|e| format!("{}", e))?;
         debug!(logger, "Destination ensured");

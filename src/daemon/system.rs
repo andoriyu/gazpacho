@@ -26,12 +26,11 @@ pub fn bootstrap_system(tx: mpsc::Sender<(Addr<LifecycleManager>, Addr<Maid>)>) 
         })
         .expect("Failed to install SIGINT handler");
 
-        /*
         let task_registry = TaskManager::from_registry();
         std::thread::spawn(move || {
             sleep(Duration::from_secs(5));
             task_registry.do_send(ExecuteTask(String::from("test")));
-        });*/
+        });
         tx.send((LifecycleManager::from_registry(), Maid::from_registry()))
             .unwrap();
         drop(tx);

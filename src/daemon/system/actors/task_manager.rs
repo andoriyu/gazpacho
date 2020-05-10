@@ -267,3 +267,46 @@ impl Handler<UpdateResetCountsMessage> for TaskManager {
         repository::update_reset_counts(conn, &msg.payload.task, reset_at)
     }
 }
+/*
+struct MyActor(u8);
+
+impl Actor for MyActor {
+    type Context = Context<Self>;
+}
+
+
+#[actix_rt::main]
+async fn main() -> std::io::Result<()> {
+    let side_stuff = Arc::new(Mutex::new(1));
+
+    let address = MyActor::create(|ctx| {
+        let actor = MyActor(0);
+
+        let fut = async {
+            actix::clock::delay_for(Duration::from_secs(1)).await;
+            1
+        };
+
+        let side_clone = side_stuff.clone();
+
+        fut.into_actor(&actor)
+            .then(move |new_state, mut act, ctx| {
+                act.0 = new_state;
+                *side_clone.lock().unwrap() += 1;
+
+                assert_eq!(1, act.0);
+
+                actix::fut::ready(())
+            })
+            .wait(ctx);
+
+        actor
+    });
+
+    actix::clock::delay_for(Duration::from_secs(2)).await;
+
+    assert_eq!(2, *side_stuff.lock().unwrap());
+
+    Ok(())
+}
+ */

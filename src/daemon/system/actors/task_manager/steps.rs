@@ -11,10 +11,10 @@ use crate::daemon::system::messages::zfs_manager::{
     GetDatasetsForTask, MakeSnapshots, SendSnapshotToPipe,
 };
 use actix::{Addr, MailboxError, SystemService};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use filedescriptor::Pipe;
 use futures::stream::FuturesUnordered;
-use futures::StreamExt;
+use futures::{FutureExt, StreamExt};
 use rusqlite::Error as SqlError;
 use slog::{debug, error, info, o, warn, Logger};
 use std::collections::HashMap;
@@ -156,10 +156,11 @@ async fn process_task_step(
     self_addr: Addr<TaskManager>,
     run_id: RowId,
 ) -> Result<(), StepError> {
+    let now = Utc::now();
     let datasets = get_datasets_for_task(&task, &zfs_addr, &logger).await?;
     debug!(logger, "Acquired {} datasets to work with", datasets.len());
     let mut errors = Vec::new();
-    let snapshot_name = get_snapshot_name();
+    let snapshot_name = get_snapshot_name(&now);
     debug!(logger, "Snapshot name is {}", &snapshot_name);
     let _ = make_snapshots(datasets.clone(), snapshot_name.clone(), &zfs_addr).await?;
     debug!(logger, "Made snapshots for the task");
@@ -196,6 +197,7 @@ async fn process_task_step(
                 run_id,
                 task_name.clone(),
                 source,
+                now.clone(),
             )
         })
         .collect::<FuturesUnordered<_>>();
@@ -302,6 +304,7 @@ async fn process_dataset(
     run_id: RowId,
     task_name: String,
     source: Option<PathBuf>,
+    date: DateTime<Utc>,
 ) -> Result<(), DatasetError> {
     let logger = logger.new(o!("dataset" => dataset.display().to_string()));
 
@@ -331,27 +334,53 @@ async fn process_dataset(
         snapshot.clone(),
         task.compression.clone(),
         rx,
+        date,
     );
-    let dst_res = dst_manager.send(dst_req);
+    let mut dst_res = dst_manager.send(dst_req).fuse();
     let zfs_req = SendSnapshotToPipe(snapshot.clone(), source.clone(), pipe);
-    let zfs_res = zfs_addr.send(zfs_req);
-    let result = futures::try_join!(dst_res, zfs_res)
-        .map_err(|e| DatasetError::new(dataset.clone(), DatasetErrorKind::MailboxError(e)))
-        .and_then(|res| match res {
-            (Ok(_), Ok(_)) => Ok(()),
-            (Err(e), _) => Err(DatasetError::other(dataset.clone(), e)),
-            (_, Err(e)) => Err(DatasetError::other(dataset.clone(), e)),
-        });
-    let completion_state = if result.is_ok() {
+    let mut zfs_res = zfs_addr.send(zfs_req).fuse();
+
+    let mut error: Option<DatasetErrorKind> = None;
+    loop {
+        futures::select! {
+            zfs_r = zfs_res => {
+                match zfs_r {
+                    Err(e) => error = Some(DatasetErrorKind::MailboxError(e)),
+                    Ok(res) => match res {
+                          Ok(_) => {},
+                          Err(e) => error = Some(DatasetErrorKind::Other(e.to_string()))
+                    }
+                }
+            },
+            dst_r = dst_res => {
+                match dst_r {
+                    Err(e) => error = Some(DatasetErrorKind::MailboxError(e)),
+                    Ok(res) => match res {
+                          Ok(_) => {},
+                          Err(e) => error = Some(DatasetErrorKind::Other(e.to_string()))
+                    }
+                }
+            },
+            complete => break
+        }
+        if error.is_some() {
+            break;
+        }
+    }
+
+    let completion_state = if error.is_some() {
         CompletionState::Completed
     } else {
         CompletionState::Failed
     };
     let msg = StepLogMessage::completed_now(row_id, completion_state);
     step_log_progress(msg, dataset.clone(), &self_addr).await?;
-    result
-        .map(|_| ())
-        .map_err(|e| DatasetError::other(dataset.clone(), e.to_string()))
+
+    if let Some(e) = error {
+        Err(DatasetError::new(dataset, e))
+    } else {
+        Ok(())
+    }
 }
 
 async fn step_log_progress(
@@ -367,8 +396,7 @@ async fn step_log_progress(
     Ok(ret)
 }
 
-fn get_snapshot_name() -> String {
-    let now = Utc::now();
+fn get_snapshot_name(now: &DateTime<Utc>) -> String {
     let date = now.format("%Y%m%d");
     let timestamp = now.timestamp();
     format!("gazpacho-{}-{}", date, timestamp)

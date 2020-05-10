@@ -1,6 +1,7 @@
 use crate::daemon::config::Compression;
 use crate::daemon::destination::Destination;
 use actix::Message;
+use chrono::{DateTime, Utc};
 use filedescriptor::FileDescriptor;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -16,6 +17,7 @@ pub struct SaveFromPipe {
     pub snapshot: PathBuf,
     pub compression: Option<Compression>,
     pub rx: FileDescriptor,
+    pub date: DateTime<Utc>,
 }
 
 impl SaveFromPipe {
@@ -25,6 +27,7 @@ impl SaveFromPipe {
         snapshot: PathBuf,
         compression: Option<Compression>,
         rx: FileDescriptor,
+        date: DateTime<Utc>,
     ) -> Self {
         SaveFromPipe {
             destination,
@@ -32,6 +35,7 @@ impl SaveFromPipe {
             snapshot,
             compression,
             rx,
+            date,
         }
     }
 }

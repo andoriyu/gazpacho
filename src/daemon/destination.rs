@@ -22,6 +22,10 @@ pub struct DestinationLocal {
 pub struct Destination {
     #[ucl(default = "1")]
     pub parallelism: u32,
+    #[ucl(default = "0o600")]
+    pub chmod: i32,
+    #[ucl(default = "0o700")]
+    pub chmod_dir: i32,
     #[ucl(default)]
     pub ssh: Option<DestinationSsh>,
     #[ucl(default)]
