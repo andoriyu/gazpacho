@@ -148,7 +148,7 @@ impl Handler<ExecuteTask> for TaskManager {
         let name = &msg.0;
         let key = name.clone();
         let zfs_addr = self.zfs_manager.clone();
-        let maybe_task = self.tasks.get(msg.0.as_str()).cloned();
+        let maybe_task = self.tasks.get(name).cloned();
         let logger = self.logger.new(o!("task" => msg.0.clone()));
         let self_addr = ctx.address();
         if self.active_runners.contains_key(&key) {
