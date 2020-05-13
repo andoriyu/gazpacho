@@ -11,9 +11,10 @@ use crate::daemon::system::messages::task_manager::{
 };
 use crate::daemon::system::shutdown;
 use crate::daemon::CURRENT_CONFIGURATION;
+use actix::fut::wrap_future;
 use actix::{
-    Actor, Addr, AsyncContext, Context, Handler, ResponseFuture, Supervised, SyncArbiter,
-    SystemService,
+    Actor, ActorFuture, Addr, AsyncContext, Context, Handler, ResponseFuture, SpawnHandle,
+    Supervised, SyncArbiter, SystemService, WrapFuture,
 };
 use chrono::Utc;
 use rusqlite::Connection;
@@ -30,6 +31,7 @@ pub struct TaskManager {
     db: Option<Connection>,
     tasks: HashMap<String, Task>,
     zfs_manager: Addr<ZfsManager>,
+    active_runners: HashMap<String, SpawnHandle>,
 }
 impl Default for TaskManager {
     fn default() -> Self {
@@ -55,7 +57,7 @@ impl Default for TaskManager {
             }
         };
         if let Err(e) = repository::check_if_readonly(&db) {
-            error!(logger, "Possibly corrupted database: {}", e);
+            error!(logger, "Possibly a corrupted database: {}", e);
             shutdown();
         }
         let zfs_manager = SyncArbiter::start(conf.parallelism as usize, ZfsManager::default);
@@ -64,6 +66,7 @@ impl Default for TaskManager {
             db: Some(db),
             tasks: HashMap::new(),
             zfs_manager,
+            active_runners: HashMap::new(),
         }
     }
 }
@@ -142,20 +145,37 @@ impl Handler<ExecuteTask> for TaskManager {
     type Result = ResponseFuture<Result<(), StepError>>;
 
     fn handle(&mut self, msg: ExecuteTask, ctx: &mut Context<Self>) -> Self::Result {
+        let name = msg.0.clone();
+        let key = msg.0.clone();
         let zfs_addr = self.zfs_manager.clone();
         let maybe_task = self.tasks.get(msg.0.as_str()).cloned();
         let logger = self.logger.new(o!("task" => msg.0.clone()));
         let self_addr = ctx.address();
+        let (tx, rx) = futures::channel::oneshot::channel();
+        let runner = steps::process_task_step_wrapper(
+            name.clone(),
+            maybe_task,
+            logger.clone(),
+            zfs_addr,
+            self_addr,
+        );
+        let runner_wrapped = wrap_future(async move {
+            let ret = runner.await;
+            let _ = tx.send(ret);
+            key.clone()
+        })
+        .map(|key, actor: &mut TaskManager, c| {
+            actor.active_runners.remove(&key);
+        });
+
+        let handler = ctx.spawn(runner_wrapped);
+        self.active_runners.insert(name.clone(), handler);
         Box::pin(async move {
-            let ret = steps::process_task_step_wrapper(
-                msg.0,
-                maybe_task,
-                logger.clone(),
-                zfs_addr,
-                self_addr,
-            )
-            .await;
-            ret
+            if let Ok(ret) = rx.await {
+                ret
+            } else {
+                Ok(()) // It's been canceled, not need to worry about it.
+            }
         })
     }
 }
