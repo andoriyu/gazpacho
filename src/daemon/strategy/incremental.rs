@@ -1,7 +1,6 @@
 use crate::utils::time_to_chrono;
 use chrono::{DateTime, Duration, Utc};
-use uclicious::traits::TryInto;
-use uclicious::{ObjectError, ObjectRef, Uclicious};
+use uclicious::Uclicious;
 
 #[derive(Uclicious, Clone, Debug, Hash)]
 #[ucl(skip_builder)]

@@ -14,7 +14,7 @@ use crate::daemon::CURRENT_CONFIGURATION;
 use actix::fut::wrap_future;
 use actix::{
     Actor, ActorFuture, Addr, AsyncContext, Context, Handler, ResponseFuture, SpawnHandle,
-    Supervised, SyncArbiter, SystemService, WrapFuture,
+    Supervised, SyncArbiter, SystemService,
 };
 use chrono::Utc;
 use rusqlite::Connection;
@@ -164,7 +164,7 @@ impl Handler<ExecuteTask> for TaskManager {
             let _ = tx.send(ret);
             key.clone()
         })
-        .map(|key, actor: &mut TaskManager, c| {
+        .map(|key, actor: &mut TaskManager, _ctx| {
             actor.active_runners.remove(&key);
         });
 

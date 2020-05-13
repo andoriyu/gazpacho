@@ -1,4 +1,4 @@
-use crate::daemon::config::{Configuration, Task};
+use crate::daemon::config::Task;
 use crate::daemon::system::actors::task_manager::StepError;
 use actix::Message;
 use chrono::{DateTime, Utc};
