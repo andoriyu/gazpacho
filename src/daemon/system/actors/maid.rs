@@ -1,8 +1,7 @@
 use crate::daemon::config::Configuration;
 use crate::daemon::logging::GlobalLogger;
-use crate::daemon::system::messages::lifecycle::NewConfiguration;
 use crate::daemon::system::messages::maid::Cleanup;
-use crate::daemon::STARTUP_CONFIGURATION;
+use crate::daemon::CURRENT_CONFIGURATION;
 use actix::{Actor, AsyncContext, Context, Handler, SpawnHandle, Supervised, SystemService};
 use libzetta::zfs::DelegatingZfsEngine;
 use slog::{debug, error, info, o, Logger};
@@ -24,7 +23,7 @@ impl Default for Maid {
                 panic!("Failed to initialize ZFS engine.")
             }
         };
-        let configuration = STARTUP_CONFIGURATION.get().cloned().unwrap();
+        let configuration = CURRENT_CONFIGURATION.get().cloned().unwrap();
         Self {
             logger,
             z,
@@ -39,7 +38,17 @@ impl Actor for Maid {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         debug!(&self.logger, "Actor started");
-        ctx.notify(NewConfiguration(self.configuration.clone()))
+        if let Some(configuration) = CURRENT_CONFIGURATION.get() {
+            if let Some(interval) = configuration.daemon.cleanup_interval {
+                debug!(self.logger, "Cleanup interval: {}", interval);
+                let duration = interval.to_std().expect("Failed to convert chrono to std");
+
+                let handle = ctx.run_interval(duration, move |this, ctx| {
+                    ctx.notify(Cleanup::default());
+                });
+                self.tick_handler = Some(handle);
+            }
+        }
     }
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
@@ -50,25 +59,6 @@ impl Actor for Maid {
 impl SystemService for Maid {}
 
 impl Supervised for Maid {}
-
-impl Handler<NewConfiguration> for Maid {
-    type Result = ();
-
-    fn handle(&mut self, msg: NewConfiguration, ctx: &mut Context<Self>) -> Self::Result {
-        if let Some(handle) = self.tick_handler.take() {
-            drop(handle);
-        }
-        if let Some(interval) = msg.0.daemon.cleanup_interval {
-            debug!(self.logger, "Cleanup interval: {}", interval);
-            let duration = interval.to_std().expect("Failed to convert chrono to std");
-
-            let handle = ctx.run_interval(duration, move |this, ctx| {
-                ctx.notify(Cleanup::default());
-            });
-            self.tick_handler = Some(handle);
-        }
-    }
-}
 
 impl Handler<Cleanup> for Maid {
     type Result = ();

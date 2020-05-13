@@ -8,8 +8,3 @@ pub enum Signals {
 impl Message for Signals {
     type Result = ();
 }
-#[derive(Debug)]
-pub struct NewConfiguration(pub Configuration);
-impl Message for NewConfiguration {
-    type Result = ();
-}

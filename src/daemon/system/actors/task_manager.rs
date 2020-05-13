@@ -6,11 +6,11 @@ pub use crate::daemon::system::actors::task_manager::steps::StepError;
 use crate::daemon::system::actors::zfs_manager::ZfsManager;
 use crate::daemon::system::messages::destination_manager::NewDestinations;
 use crate::daemon::system::messages::task_manager::{
-    ExecuteTask, GetSources, NeedsReset, NewConfiguration, RowId, StepLog, StepLogMessage, TaskLog,
-    TaskLogMessage, UpdateResetCountsMessage,
+    ExecuteTask, GetSources, NeedsReset, RowId, StepLog, StepLogMessage, TaskLog, TaskLogMessage,
+    UpdateResetCountsMessage,
 };
 use crate::daemon::system::shutdown;
-use crate::daemon::STARTUP_CONFIGURATION;
+use crate::daemon::CURRENT_CONFIGURATION;
 use actix::{
     Actor, Addr, AsyncContext, Context, Handler, ResponseFuture, Supervised, SyncArbiter,
     SystemService,
@@ -35,7 +35,7 @@ impl Default for TaskManager {
     fn default() -> Self {
         let logger =
             GlobalLogger::get().new(o!("module" => module_path!(), "actor" => "TaskRegistry"));
-        let conf = STARTUP_CONFIGURATION.get().unwrap();
+        let conf = CURRENT_CONFIGURATION.get().unwrap();
         let db_path = conf.daemon.database.as_path();
         debug!(logger, "Trying to open database at '{}'", db_path.display());
         let mut db = match Connection::open(db_path) {
@@ -73,9 +73,48 @@ impl Actor for TaskManager {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         debug!(self.logger, "Actor started");
-        ctx.notify(NewConfiguration(
-            STARTUP_CONFIGURATION.get().cloned().unwrap(),
-        ))
+
+        if let Some(configuration) = CURRENT_CONFIGURATION.get() {
+            let tasks: HashMap<String, Task> = configuration
+                .tasks
+                .clone()
+                .into_iter()
+                .filter(|(name, task)| {
+                    let dst = task.destination.as_str();
+                    if configuration.destinations.contains_key(dst) {
+                        true
+                    } else {
+                        error!(
+                            self.logger,
+                            "Task '{}' specified a non-existent destination '{}' and will be skipped.",
+                            name,
+                            dst
+                        );
+                        false
+                    }
+                })
+                .collect();
+            debug!(
+                self.logger,
+                "Loaded tasks: {:?}",
+                tasks.keys().collect::<Vec<&String>>()
+            );
+            let used_destinations: Vec<String> = tasks
+                .iter()
+                .map(|(_, task)| task.destination.clone())
+                .collect();
+            self.tasks = tasks;
+
+            let dsts = configuration
+                .destinations
+                .clone()
+                .into_iter()
+                .filter(|(name, _)| used_destinations.contains(name))
+                .collect();
+            let new_destinations = NewDestinations(dsts);
+            let dst_manager = DestinationManager::from_registry();
+            dst_manager.do_send(new_destinations);
+        }
     }
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
@@ -96,55 +135,6 @@ impl SystemService for TaskManager {}
 impl Supervised for TaskManager {
     fn restarting(&mut self, _ctx: &mut Self::Context) {
         warn!(&self.logger, "Actor restarted")
-    }
-}
-
-impl Handler<NewConfiguration> for TaskManager {
-    type Result = ();
-
-    fn handle(&mut self, msg: NewConfiguration, _ctx: &mut Context<Self>) -> Self::Result {
-        debug!(self.logger, "Loading new configuration");
-        let tasks: HashMap<String, Task> = msg
-            .0
-            .tasks
-            .clone()
-            .into_iter()
-            .filter(|(name, task)| {
-                let dst = task.destination.as_str();
-                if msg.0.destinations.contains_key(dst) {
-                    true
-                } else {
-                    error!(
-                        self.logger,
-                        "Task '{}' specified a non-existent destination '{}' and will be skipped.",
-                        name,
-                        dst
-                    );
-                    false
-                }
-            })
-            .collect();
-        debug!(
-            self.logger,
-            "Loaded tasks: {:?}",
-            tasks.keys().collect::<Vec<&String>>()
-        );
-        let used_destinations: Vec<String> = tasks
-            .iter()
-            .map(|(_, task)| task.destination.clone())
-            .collect();
-        self.tasks = tasks;
-
-        let dsts = msg
-            .0
-            .destinations
-            .clone()
-            .into_iter()
-            .filter(|(name, _)| used_destinations.contains(name))
-            .collect();
-        let new_destinations = NewDestinations(dsts);
-        let dst_manager = DestinationManager::from_registry();
-        dst_manager.do_send(new_destinations);
     }
 }
 

@@ -6,8 +6,6 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
-pub use super::lifecycle::NewConfiguration;
-
 pub type StepLogMessage = TimestampedMessage<StepLog>;
 pub type TaskLogMessage = TimestampedMessage<TaskLog>;
 pub type UpdateResetCountsMessage = TimestampedMessage<UpdateResetCounts>;

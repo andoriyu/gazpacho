@@ -15,7 +15,7 @@ use once_cell::sync::OnceCell;
 use slog::{debug, error, info, warn};
 use std::sync::mpsc;
 
-pub static STARTUP_CONFIGURATION: OnceCell<Configuration> = OnceCell::new();
+static CURRENT_CONFIGURATION: OnceCell<Configuration> = OnceCell::new();
 
 pub fn start_daemon() {
     let input = r#"
@@ -69,7 +69,7 @@ pub fn start_daemon() {
         .unwrap();
     let conf: Configuration = builder.build().unwrap();
 
-    STARTUP_CONFIGURATION
+    CURRENT_CONFIGURATION
         .set(conf.clone())
         .expect("Failed to set STARTUP_CONFIGURATION");
 
