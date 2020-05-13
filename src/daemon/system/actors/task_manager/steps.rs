@@ -78,6 +78,7 @@ pub enum StepError {
     SqlError(SqlError),
     ZfsError(String),
     PartialErrors(Vec<DatasetError>),
+    AlreadyRunning(String),
 }
 
 impl From<MailboxError> for StepError {
@@ -100,6 +101,9 @@ impl Display for StepError {
             StepError::SqlError(ref source) => write!(f, "SqlError: {}", source),
             StepError::ZfsError(ref source) => write!(f, "ZfsError: {}", source),
             StepError::PartialErrors(ref source) => write!(f, "PartialErrors: {:?}", source),
+            StepError::AlreadyRunning(ref task_name) => {
+                write!(f, "Task \"{}\" is already running", task_name)
+            }
         }
     }
 }

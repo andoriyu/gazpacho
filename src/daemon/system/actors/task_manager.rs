@@ -145,12 +145,17 @@ impl Handler<ExecuteTask> for TaskManager {
     type Result = ResponseFuture<Result<(), StepError>>;
 
     fn handle(&mut self, msg: ExecuteTask, ctx: &mut Context<Self>) -> Self::Result {
-        let name = msg.0.clone();
-        let key = msg.0.clone();
+        let name = &msg.0;
+        let key = name.clone();
         let zfs_addr = self.zfs_manager.clone();
         let maybe_task = self.tasks.get(msg.0.as_str()).cloned();
         let logger = self.logger.new(o!("task" => msg.0.clone()));
         let self_addr = ctx.address();
+        if self.active_runners.contains_key(&key) {
+            let name = name.clone();
+            warn!(logger, "Task \"{}\" is already running!", &key);
+            return Box::pin(async move { Err(StepError::AlreadyRunning(name)) });
+        }
         let (tx, rx) = futures::channel::oneshot::channel();
         let runner = steps::process_task_step_wrapper(
             name.clone(),
