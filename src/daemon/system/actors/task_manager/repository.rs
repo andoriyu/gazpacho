@@ -1,4 +1,5 @@
-use crate::daemon::system::messages::task_manager::{CompletionState, RowId};
+use super::messages::{CompletionState, RowId};
+use crate::daemon::system::actors::task_manager::errors::{InsertTaskLogError, UpdateTaskLogError};
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
@@ -8,12 +9,15 @@ pub fn insert_task_log(
     conn: &Connection,
     task_name: &str,
     timestamp: DateTime<Utc>,
-) -> Result<RowId, rusqlite::Error> {
+) -> Result<RowId, InsertTaskLogError> {
     let state = CompletionState::Pending.to_string();
     let time_of_event = timestamp.to_rfc3339();
-    let mut stmt =
-        conn.prepare("INSERT INTO task_log (task, started_at, state) VALUES (?1, ?2, ?3)")?;
-    let row_id = stmt.insert(&[task_name, &time_of_event, &state])?;
+    let mut stmt = conn
+        .prepare("INSERT INTO task_log (task, started_at, state) VALUES (?1, ?2, ?3)")
+        .map_err(|e| InsertTaskLogError::PreparedStatementError(e))?;
+    let row_id = stmt
+        .insert(&[task_name, &time_of_event, &state])
+        .map_err(|e| InsertTaskLogError::InsertError(e))?;
     Ok(row_id)
 }
 
@@ -22,14 +26,15 @@ pub fn update_task_log_state(
     row_id: RowId,
     state: CompletionState,
     timestamp: DateTime<Utc>,
-) -> Result<RowId, rusqlite::Error> {
+) -> Result<RowId, UpdateTaskLogError> {
     let state = state.to_string();
     let time_of_event = timestamp.to_rfc3339();
 
-    let mut stmt =
-        conn.prepare("UPDATE task_log SET completed_at = ?1, state = ?2 WHERE id = ?3")?;
-    stmt.execute(params![time_of_event, state, row_id])?;
-
+    let mut stmt = conn
+        .prepare("UPDATE task_log SET completed_at = ?1, state = ?2 WHERE id = ?3")
+        .map_err(|e| UpdateTaskLogError::PreparedStatementError(e))?;
+    stmt.execute(params![time_of_event, state, row_id])
+        .map_err(|e| UpdateTaskLogError::UpdateError(e))?;
     Ok(row_id)
 }
 

@@ -29,6 +29,6 @@ refinery-migrations = { version = "0.2", features = ["rusqlite"] }
 barrel =  { version = "0.6", features = ["sqlite3"] }
 futures = "0.3.4"
 tokio = { version = "0.2", features = ["sync"] }
-
+snafu = "0.6"
 [patch.crates-io]
 zstd-sys = { version = "1.4", features = ["zstdmt", "zstdmt"], path = "/home/andoriyu/dev/github.com/andoriyu/zstd-rs/zstd-safe/zstd-sys" }

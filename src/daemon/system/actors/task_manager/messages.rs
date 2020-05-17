@@ -1,4 +1,5 @@
 use crate::daemon::config::Task;
+use crate::daemon::system::actors::task_manager::errors::RepositoryError;
 use crate::daemon::system::actors::task_manager::StepError;
 use actix::Message;
 use chrono::{DateTime, Utc};
@@ -45,7 +46,7 @@ pub enum TaskLog {
 }
 
 impl Message for TimestampedMessage<TaskLog> {
-    type Result = Result<RowId, rusqlite::Error>;
+    type Result = Result<RowId, RepositoryError>;
 }
 
 impl TimestampedMessage<TaskLog> {

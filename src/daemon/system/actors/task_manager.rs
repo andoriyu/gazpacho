@@ -2,13 +2,10 @@ use crate::daemon::config::Task;
 use crate::daemon::logging::GlobalLogger;
 use crate::daemon::strategy::Strategy;
 use crate::daemon::system::actors::destination_manager::DestinationManager;
+use crate::daemon::system::actors::task_manager::errors::RepositoryError;
 pub use crate::daemon::system::actors::task_manager::steps::StepError;
 use crate::daemon::system::actors::zfs_manager::ZfsManager;
 use crate::daemon::system::messages::destination_manager::NewDestinations;
-use crate::daemon::system::messages::task_manager::{
-    ExecuteTask, GetSources, NeedsReset, RowId, StepLog, StepLogMessage, TaskLog, TaskLogMessage,
-    UpdateResetCountsMessage,
-};
 use crate::daemon::system::shutdown;
 use crate::daemon::CURRENT_CONFIGURATION;
 use actix::fut::wrap_future;
@@ -17,12 +14,18 @@ use actix::{
     Supervised, SyncArbiter, SystemService,
 };
 use chrono::Utc;
+use messages::{
+    ExecuteTask, GetSources, NeedsReset, RowId, StepLog, StepLogMessage, TaskLog, TaskLogMessage,
+    UpdateResetCountsMessage,
+};
 use rusqlite::Connection;
 use slog::Logger;
 use slog::{debug, error, o, warn};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+pub mod errors;
+pub mod messages;
 mod repository;
 mod steps;
 
@@ -52,7 +55,7 @@ impl Default for TaskManager {
         match crate::db::task_manager::runner().run(&mut db) {
             Ok(()) => debug!(logger, "Ran task_manager migrations"),
             Err(e) => {
-                error!(logger, "Failed to run task_manager: {}", e);
+                error!(logger, "Failed to run task_manager migrations: {}", e);
                 shutdown();
             }
         };
@@ -186,16 +189,17 @@ impl Handler<ExecuteTask> for TaskManager {
 }
 
 impl Handler<TaskLogMessage> for TaskManager {
-    type Result = Result<RowId, rusqlite::Error>;
+    type Result = Result<RowId, RepositoryError>;
 
     fn handle(&mut self, msg: TaskLogMessage, _ctx: &mut Context<Self>) -> Self::Result {
         let conn = self.db.as_ref().expect("Failed to acquire connection");
         match msg.payload {
             TaskLog::Started(task_name) => {
-                repository::insert_task_log(conn, &task_name, msg.timestamp)
+                repository::insert_task_log(conn, &task_name, msg.timestamp).map_err(Into::into)
             }
             TaskLog::Completed(row_id, completion_state) => {
                 repository::update_task_log_state(conn, row_id, completion_state, msg.timestamp)
+                    .map_err(Into::into)
             }
         }
     }

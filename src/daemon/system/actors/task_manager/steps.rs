@@ -1,12 +1,13 @@
-use crate::daemon::config::Task;
-use crate::daemon::system::actors::destination_manager::DestinationManager;
-use crate::daemon::system::actors::task_manager::TaskManager;
-use crate::daemon::system::actors::zfs_manager::ZfsManager;
-use crate::daemon::system::messages::destination_manager::SaveFromPipe;
-use crate::daemon::system::messages::task_manager::{
+use super::messages::{
     CompletionState, GetSources, NeedsReset, RowId, StepLogMessage, TaskLogMessage,
     UpdateResetCountsMessage,
 };
+use crate::daemon::config::Task;
+use crate::daemon::system::actors::destination_manager::DestinationManager;
+use crate::daemon::system::actors::task_manager::errors::RepositoryError;
+use crate::daemon::system::actors::task_manager::TaskManager;
+use crate::daemon::system::actors::zfs_manager::ZfsManager;
+use crate::daemon::system::messages::destination_manager::SaveFromPipe;
 use crate::daemon::system::messages::zfs_manager::{
     GetDatasetsForTask, MakeSnapshots, SendSnapshotToPipe,
 };
@@ -75,6 +76,7 @@ impl Display for DatasetError {
 pub enum StepError {
     TaskNotFound(String),
     MailboxError(MailboxError),
+    RepositoryError(RepositoryError),
     SqlError(SqlError),
     ZfsError(String),
     PartialErrors(Vec<DatasetError>),
@@ -92,6 +94,11 @@ impl From<SqlError> for StepError {
         StepError::SqlError(src)
     }
 }
+impl From<RepositoryError> for StepError {
+    fn from(src: RepositoryError) -> Self {
+        StepError::RepositoryError(src)
+    }
+}
 
 impl Display for StepError {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
@@ -104,6 +111,7 @@ impl Display for StepError {
             StepError::AlreadyRunning(ref task_name) => {
                 write!(f, "Task \"{}\" is already running", task_name)
             }
+            StepError::RepositoryError(ref source) => write!(f, "RepositoryError: {}", source),
         }
     }
 }

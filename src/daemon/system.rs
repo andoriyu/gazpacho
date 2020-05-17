@@ -1,9 +1,9 @@
 use crate::daemon::logging::GlobalLogger;
 use crate::daemon::system::actors::lifecycle::LifecycleManager;
 use crate::daemon::system::actors::maid::Maid;
+use crate::daemon::system::actors::task_manager::messages::ExecuteTask;
 use crate::daemon::system::actors::task_manager::TaskManager;
 use crate::daemon::system::messages::lifecycle::Signals;
-use crate::daemon::system::messages::task_manager::ExecuteTask;
 use actix::prelude::*;
 use actix::{System, SystemService};
 use slog::{debug, o};
